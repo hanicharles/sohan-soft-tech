@@ -1,0 +1,1 @@
+// Legacy external authentication is intentionally disabled. Local authentication is handled by /api/auth/login and a secure session cookie.\nexport type LocalUser = { userId: string; displayName: string; email: string };\n

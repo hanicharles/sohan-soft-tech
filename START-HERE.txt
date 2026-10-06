@@ -1,0 +1,23 @@
+SOHAN SOFT TECH — SOURCE CODE, VERSION 11
+
+This is the existing application updated with the requested advanced workflows.
+Start with README.md and docs/advanced-phase.md. The exact code guide and a patch
+from version 10 are included in DELIVERY/.
+
+Install the pinned dependencies with pnpm (see package.json and existing scripts).
+Use the existing deployment/identity setup. Configure runtime secrets from
+.env.example; no live credentials or database exports are included.
+
+Schema migration 0007 must precede the matching application release.
+Current managed hosting uses its existing daily scheduler and durable background
+outbox; native Cloudflare Queues/Cron require hosting-level provisioning.
+
+Parent portals use signed, revocable guardian links. Official Form 10BE documents
+must come from the institution's statutory filing, not ordinary tuition receipts.
+RFID posts configured daily service charges; it does not debit a bank account.
+
+Validation: production build, strict typecheck, existing regression suites,
+5 advanced unit tests and 32 advanced Worker/Queue checks passed. Provider HTTP
+calls were mocked; no live bank payments or messages were sent during testing.
+
+Source commit: c8b54c7888c8307dccf22838c85b1858fb8ed440
