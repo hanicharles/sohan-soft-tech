@@ -2029,3 +2029,419 @@ export const lmsQuizAttempts = sqliteTable(
 );
 
 
+// ==========================================
+// MEMBER 2: STUDENT PORTAL (SECTIONS 13-24)
+// ==========================================
+
+export const studentDocuments = sqliteTable(
+  "student_documents",
+  {
+    id: id(),
+    ...tenant(),
+    studentId: text("student_id")
+      .notNull()
+      .references(() => students.id),
+    title: text("title").notNull(),
+    category: text("category").notNull().default("Academic"),
+    documentType: text("document_type").notNull().default("Marksheet"),
+    fileUrl: text("file_url").notNull(),
+    fileName: text("file_name").notNull(),
+    fileSizeBytes: integer("file_size_bytes").notNull().default(0),
+    mimeType: text("mime_type").notNull().default("application/pdf"),
+    verificationStatus: text("verification_status")
+      .notNull()
+      .default("Pending"),
+    verificationNotes: text("verification_notes").notNull().default(""),
+    verifiedBy: text("verified_by"),
+    verifiedAt: text("verified_at"),
+    isStudentUploaded: integer("is_student_uploaded").notNull().default(1),
+    ...time(),
+  },
+  (t) => [
+    index("student_docs_student_idx").on(t.institutionId, t.studentId),
+    index("student_docs_cat_idx").on(t.institutionId, t.studentId, t.category),
+  ],
+);
+
+export const studentCertificateRequests = sqliteTable(
+  "student_certificate_requests",
+  {
+    id: id(),
+    ...tenant(),
+    studentId: text("student_id")
+      .notNull()
+      .references(() => students.id),
+    certificateType: text("certificate_type").notNull(),
+    reason: text("reason").notNull().default(""),
+    status: text("status").notNull().default("Pending"),
+    certificateNumber: text("certificate_number"),
+    verificationCode: text("verification_code"),
+    qrPayload: text("qr_payload"),
+    pdfUrl: text("pdf_url"),
+    rejectionReason: text("rejection_reason"),
+    approvedBy: text("approved_by"),
+    approvedAt: text("approved_at"),
+    issuedAt: text("issued_at"),
+    ...time(),
+  },
+  (t) => [
+    index("student_cert_student_idx").on(t.institutionId, t.studentId),
+    index("student_cert_number_idx").on(t.institutionId, t.certificateNumber),
+    index("student_cert_code_idx").on(t.institutionId, t.verificationCode),
+  ],
+);
+
+export const campusAnnouncements = sqliteTable(
+  "campus_announcements",
+  {
+    id: id(),
+    ...tenant(),
+    title: text("title").notNull(),
+    content: text("content").notNull(),
+    category: text("category").notNull().default("General"),
+    priority: text("priority").notNull().default("Normal"),
+    targetScope: text("target_scope").notNull().default("All"),
+    departmentId: text("department_id"),
+    programId: text("program_id"),
+    classId: text("class_id"),
+    sectionId: text("section_id"),
+    studentGroup: text("student_group").notNull().default(""),
+    attachments: text("attachments").notNull().default("[]"),
+    isPinned: integer("is_pinned").notNull().default(0),
+    publishedAt: text("published_at").notNull(),
+    expiresAt: text("expires_at"),
+    authorName: text("author_name").notNull().default(""),
+    ...time(),
+  },
+  (t) => [
+    index("campus_announcements_scope_idx").on(
+      t.institutionId,
+      t.targetScope,
+      t.publishedAt,
+    ),
+    index("campus_announcements_cat_idx").on(t.institutionId, t.category),
+  ],
+);
+
+export const studentAnnouncementReads = sqliteTable(
+  "student_announcement_reads",
+  {
+    id: id(),
+    ...tenant(),
+    announcementId: text("announcement_id")
+      .notNull()
+      .references(() => campusAnnouncements.id),
+    studentId: text("student_id")
+      .notNull()
+      .references(() => students.id),
+    readAt: text("read_at").notNull(),
+  },
+  (t) => [
+    uniqueIndex("student_ann_reads_unique_idx").on(
+      t.institutionId,
+      t.announcementId,
+      t.studentId,
+    ),
+    index("student_ann_reads_student_idx").on(t.institutionId, t.studentId),
+  ],
+);
+
+export const studentPortalNotifications = sqliteTable(
+  "student_portal_notifications",
+  {
+    id: id(),
+    ...tenant(),
+    studentId: text("student_id")
+      .notNull()
+      .references(() => students.id),
+    type: text("type").notNull().default("General"),
+    title: text("title").notNull(),
+    message: text("message").notNull(),
+    actionUrl: text("action_url").notNull().default(""),
+    isRead: integer("is_read").notNull().default(0),
+    readAt: text("read_at"),
+    ...time(),
+  },
+  (t) => [
+    index("student_notif_student_idx").on(t.institutionId, t.studentId),
+    index("student_notif_read_idx").on(
+      t.institutionId,
+      t.studentId,
+      t.isRead,
+    ),
+  ],
+);
+
+export const studentConversations = sqliteTable(
+  "student_conversations",
+  {
+    id: id(),
+    ...tenant(),
+    studentId: text("student_id")
+      .notNull()
+      .references(() => students.id),
+    participantType: text("participant_type").notNull().default("Faculty"),
+    participantId: text("participant_id").notNull(),
+    participantName: text("participant_name").notNull().default(""),
+    participantRole: text("participant_role").notNull().default(""),
+    subject: text("subject").notNull().default(""),
+    lastMessageAt: text("last_message_at").notNull(),
+    lastMessagePreview: text("last_message_preview").notNull().default(""),
+    unreadCountStudent: integer("unread_count_student").notNull().default(0),
+    unreadCountParticipant: integer("unread_count_participant")
+      .notNull()
+      .default(0),
+    status: text("status").notNull().default("Active"),
+    ...time(),
+  },
+  (t) => [
+    index("student_conv_student_idx").on(t.institutionId, t.studentId),
+    index("student_conv_participant_idx").on(
+      t.institutionId,
+      t.participantId,
+    ),
+  ],
+);
+
+export const studentMessages = sqliteTable(
+  "student_messages",
+  {
+    id: id(),
+    ...tenant(),
+    conversationId: text("conversation_id")
+      .notNull()
+      .references(() => studentConversations.id),
+    senderType: text("sender_type").notNull(),
+    senderId: text("sender_id").notNull(),
+    senderName: text("sender_name").notNull().default(""),
+    content: text("content").notNull(),
+    attachments: text("attachments").notNull().default("[]"),
+    readAt: text("read_at"),
+    isReported: integer("is_reported").notNull().default(0),
+    reportReason: text("report_reason").notNull().default(""),
+    ...time(),
+  },
+  (t) => [
+    index("student_msgs_conv_idx").on(t.institutionId, t.conversationId),
+    index("student_msgs_sender_idx").on(t.institutionId, t.senderId),
+  ],
+);
+
+export const campusEvents = sqliteTable(
+  "campus_events",
+  {
+    id: id(),
+    ...tenant(),
+    title: text("title").notNull(),
+    description: text("description").notNull().default(""),
+    category: text("category").notNull().default("Academic"),
+    location: text("location").notNull().default(""),
+    startDate: text("start_date").notNull(),
+    endDate: text("end_date").notNull(),
+    isAllDay: integer("is_all_day").notNull().default(0),
+    targetScope: text("target_scope").notNull().default("All"),
+    departmentId: text("department_id"),
+    maxParticipants: integer("max_participants").notNull().default(0),
+    registrationDeadline: text("registration_deadline"),
+    status: text("status").notNull().default("Upcoming"),
+    imageUrl: text("image_url").notNull().default(""),
+    ...time(),
+  },
+  (t) => [
+    index("campus_events_date_idx").on(t.institutionId, t.startDate),
+    index("campus_events_status_idx").on(t.institutionId, t.status),
+  ],
+);
+
+export const studentEventRegistrations = sqliteTable(
+  "student_event_registrations",
+  {
+    id: id(),
+    ...tenant(),
+    eventId: text("event_id")
+      .notNull()
+      .references(() => campusEvents.id),
+    studentId: text("student_id")
+      .notNull()
+      .references(() => students.id),
+    status: text("status").notNull().default("Registered"),
+    registeredAt: text("registered_at").notNull(),
+    attendanceStatus: text("attendance_status")
+      .notNull()
+      .default("Pending"),
+    attendedAt: text("attended_at"),
+    reminderEnabled: integer("reminder_enabled").notNull().default(1),
+    reminderMinutesBefore: integer("reminder_minutes_before")
+      .notNull()
+      .default(60),
+    reminderSentAt: text("reminder_sent_at"),
+    notes: text("notes").notNull().default(""),
+    ...time(),
+  },
+  (t) => [
+    uniqueIndex("student_event_reg_unique_idx").on(
+      t.institutionId,
+      t.eventId,
+      t.studentId,
+    ),
+    index("student_event_reg_student_idx").on(t.institutionId, t.studentId),
+  ],
+);
+
+export const studentTickets = sqliteTable(
+  "student_tickets",
+  {
+    id: id(),
+    ...tenant(),
+    studentId: text("student_id")
+      .notNull()
+      .references(() => students.id),
+    ticketNumber: text("ticket_number").notNull(),
+    category: text("category").notNull().default("General"),
+    subject: text("subject").notNull(),
+    description: text("description").notNull(),
+    priority: text("priority").notNull().default("Medium"),
+    status: text("status").notNull().default("Open"),
+    assignedTo: text("assigned_to"),
+    assignedToName: text("assigned_to_name").notNull().default(""),
+    resolvedAt: text("resolved_at"),
+    resolutionNotes: text("resolution_notes").notNull().default(""),
+    closedAt: text("closed_at"),
+    ...time(),
+  },
+  (t) => [
+    index("student_tickets_student_idx").on(t.institutionId, t.studentId),
+    uniqueIndex("student_tickets_number_idx").on(
+      t.institutionId,
+      t.ticketNumber,
+    ),
+    index("student_tickets_status_idx").on(t.institutionId, t.status),
+  ],
+);
+
+export const studentTicketMessages = sqliteTable(
+  "student_ticket_messages",
+  {
+    id: id(),
+    ...tenant(),
+    ticketId: text("ticket_id")
+      .notNull()
+      .references(() => studentTickets.id),
+    senderType: text("sender_type").notNull(),
+    senderId: text("sender_id").notNull(),
+    senderName: text("sender_name").notNull().default(""),
+    message: text("message").notNull(),
+    attachments: text("attachments").notNull().default("[]"),
+    ...time(),
+  },
+  (t) => [
+    index("student_ticket_msgs_ticket_idx").on(t.institutionId, t.ticketId),
+  ],
+);
+
+export const studentTicketStatusHistory = sqliteTable(
+  "student_ticket_status_history",
+  {
+    id: id(),
+    ...tenant(),
+    ticketId: text("ticket_id")
+      .notNull()
+      .references(() => studentTickets.id),
+    oldStatus: text("old_status").notNull(),
+    newStatus: text("new_status").notNull(),
+    changedBy: text("changed_by").notNull(),
+    changedByName: text("changed_by_name").notNull().default(""),
+    changeReason: text("change_reason").notNull().default(""),
+    createdAt: text("created_at").notNull(),
+  },
+  (t) => [
+    index("student_ticket_hist_ticket_idx").on(t.institutionId, t.ticketId),
+  ],
+);
+
+export const studentFeedbackSubmissions = sqliteTable(
+  "student_feedback_submissions",
+  {
+    id: id(),
+    ...tenant(),
+    studentId: text("student_id")
+      .notNull()
+      .references(() => students.id),
+    feedbackType: text("feedback_type").notNull().default("General"),
+    targetId: text("target_id"),
+    targetName: text("target_name").notNull().default(""),
+    rating: integer("rating").notNull().default(5),
+    title: text("title").notNull().default(""),
+    comments: text("comments").notNull(),
+    isAnonymous: integer("is_anonymous").notNull().default(0),
+    status: text("status").notNull().default("Submitted"),
+    responseNotes: text("response_notes").notNull().default(""),
+    reviewedBy: text("reviewed_by"),
+    reviewedAt: text("reviewed_at"),
+    ...time(),
+  },
+  (t) => [
+    index("student_feedback_student_idx").on(t.institutionId, t.studentId),
+    index("student_feedback_type_idx").on(
+      t.institutionId,
+      t.feedbackType,
+    ),
+  ],
+);
+
+export const studentPersonalDeadlines = sqliteTable(
+  "student_personal_deadlines",
+  {
+    id: id(),
+    ...tenant(),
+    studentId: text("student_id")
+      .notNull()
+      .references(() => students.id),
+    title: text("title").notNull(),
+    description: text("description").notNull().default(""),
+    dueDate: text("due_date").notNull(),
+    category: text("category").notNull().default("Personal"),
+    priority: text("priority").notNull().default("Medium"),
+    isCompleted: integer("is_completed").notNull().default(0),
+    completedAt: text("completed_at"),
+    reminderDate: text("reminder_date"),
+    ...time(),
+  },
+  (t) => [
+    index("student_deadlines_student_idx").on(t.institutionId, t.studentId),
+    index("student_deadlines_due_idx").on(
+      t.institutionId,
+      t.studentId,
+      t.dueDate,
+    ),
+  ],
+);
+
+export const studentPortalSettings = sqliteTable(
+  "student_portal_settings",
+  {
+    id: id(),
+    ...tenant(),
+    studentId: text("student_id")
+      .notNull()
+      .references(() => students.id),
+    theme: text("theme").notNull().default("system"),
+    language: text("language").notNull().default("en"),
+    emailNotifications: integer("email_notifications").notNull().default(1),
+    smsNotifications: integer("sms_notifications").notNull().default(0),
+    pushNotifications: integer("push_notifications").notNull().default(1),
+    feeAlerts: integer("fee_alerts").notNull().default(1),
+    examAlerts: integer("exam_alerts").notNull().default(1),
+    assignmentAlerts: integer("assignment_alerts").notNull().default(1),
+    eventAlerts: integer("event_alerts").notNull().default(1),
+    compactView: integer("compact_view").notNull().default(0),
+    ...time(),
+  },
+  (t) => [
+    uniqueIndex("student_settings_student_idx").on(
+      t.institutionId,
+      t.studentId,
+    ),
+  ],
+);
+
