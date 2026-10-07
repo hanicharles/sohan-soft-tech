@@ -18,7 +18,8 @@
     "format": "prettier --write app components/campus features server lib/money.ts lib/tabular.ts lib/api-client.ts lib/i18n.ts db tests README.md",
     "test:saas": "node tests/saas.mjs",
     "test:refactor": "node tests/refactor-unit.mjs && node tests/drizzle-tenancy.mjs && node tests/refactor.mjs",
-    "test:advanced": "node tests/advanced-unit.mjs && node tests/advanced.mjs"
+    "test:advanced": "node tests/advanced-unit.mjs && node tests/advanced.mjs",
+    "test:member1": "node tests/member1.test.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",

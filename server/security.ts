@@ -4,10 +4,14 @@ import { all, insert, now, one, Row, stmt, uuid } from "./db";
 export type Role =
   | "SUPER_ADMIN"
   | "INSTITUTION_ADMIN"
+  | "ADMIN"
+  | "PRINCIPAL"
+  | "FACULTY"
   | "ACCOUNTANT"
   | "FEE_COLLECTOR"
   | "FEE_COUNTER_CASHIER"
   | "AUDITOR"
+  | "STAFF"
   | "RECEPTIONIST"
   | "CUSTOM"
   | "TEACHER"
@@ -35,6 +39,7 @@ export class ApiError extends Error {
     public status: number,
     public code: string,
     message: string,
+    public details?: unknown,
   ) {
     super(message);
   }
@@ -149,6 +154,65 @@ export function clearedLocalSessionCookie() {
 export async function authenticate(
   request: Request,
 ): Promise<{ userId: string; name: string; email: string }> {
+  const oaiEmail = request.headers
+    .get("oai-authenticated-user-email")
+    ?.trim()
+    .toLowerCase();
+  if (oaiEmail && oaiEmail.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(oaiEmail)) {
+    const userId = await accountIdForEmail(oaiEmail);
+    let name = oaiEmail.split("@")[0];
+    if (
+      request.headers.get("oai-authenticated-user-full-name-encoding") ===
+      "percent-encoded-utf-8"
+    ) {
+      try {
+        name = decodeURIComponent(
+          request.headers.get("oai-authenticated-user-full-name") || name,
+        );
+      } catch {}
+    }
+    return { userId, name, email: oaiEmail };
+  }
+
+  // Check auth_sessions (token from Cookie or Authorization header)
+  const cookieHeader = request.headers.get("cookie") || "";
+  const authHeader = request.headers.get("authorization") || "";
+  let token = "";
+  if (authHeader.startsWith("Bearer ")) {
+    token = authHeader.slice(7).trim();
+  } else {
+    const match = cookieHeader.match(
+      /(?:sohan_local_auth|sohan_session|sst_session)=([^;]+)/,
+    );
+    if (match) token = match[1].trim();
+  }
+  if (token) {
+    const tokenHash = await sha256(token);
+    try {
+      const session = await one<{
+        user_id: string;
+        name: string;
+        email: string;
+      }>(
+        `SELECT s.user_id, u.name, u.email 
+         FROM auth_sessions s 
+         JOIN users u ON u.id = s.user_id 
+         WHERE s.token_hash = ? AND s.expires_at > ? 
+         LIMIT 1`,
+        [tokenHash, now()],
+      );
+      if (session) {
+        return {
+          userId: session.user_id,
+          name: session.name,
+          email: session.email,
+        };
+      }
+    } catch {
+      // In case auth_sessions table is not yet created
+    }
+  }
+
   if (await verifyLocalSession(request)) {
     const email = localOwnerEmail();
     const userId = await accountIdForEmail(email);
@@ -239,10 +303,62 @@ export async function actorFor(request: Request): Promise<Actor> {
       "This institution is suspended or archived. Contact the platform administrator.",
     );
   const members = await all(
-    "SELECT m.* FROM memberships m WHERE m.user_id=? AND m.active=1 AND m.institution_id=? AND m.role NOT IN ('SUPER_ADMIN','PARENT','STUDENT')",
+    "SELECT m.* FROM memberships m WHERE m.user_id=? AND m.active=1 AND m.institution_id=? AND m.role NOT IN ('SUPER_ADMIN','PARENT')",
     [identity.userId, institutionId],
   );
-  const m = members[0];
+  let m = members[0];
+  if (!m) {
+    const url = new URL(request.url);
+    const referer = request.headers.get("referer") || "";
+    const isPortalRoute =
+      url.pathname.includes("/parent-portal") ||
+      url.pathname.includes("/student-portal") ||
+      referer.includes("/parent-portal") ||
+      referer.includes("/student-portal");
+    if (isPortalRoute) {
+      const portalMember = await one<any>(
+        "SELECT m.* FROM memberships m WHERE m.user_id=? AND m.active=1 AND m.institution_id=? AND m.role IN ('PARENT','STUDENT') LIMIT 1",
+        [identity.userId, institutionId],
+      );
+      if (portalMember) {
+        m = portalMember;
+      }
+      if (!m) {
+        const parentRow = await one<{ id: string }>(
+          "SELECT id FROM parents WHERE institution_id=? AND lower(email)=lower(?) LIMIT 1",
+          [institutionId, identity.email],
+        );
+        if (parentRow) {
+          return {
+            ...identity,
+            institutionId,
+            organizationId: institution.organization_id || undefined,
+            role: "PARENT",
+            parentId: parentRow.id,
+            feeVisibility: true,
+            permissions: normalizedPermissions("PARENT"),
+            request,
+          };
+        }
+        const studentRow = await one<{ id: string }>(
+          "SELECT id FROM students WHERE institution_id=? AND id IN (SELECT enrolled_student_id FROM admissions_applications WHERE lower(student_email)=lower(?) AND institution_id=?) LIMIT 1",
+          [identity.email, institutionId],
+        );
+        if (studentRow) {
+          return {
+            ...identity,
+            institutionId,
+            organizationId: institution.organization_id || undefined,
+            role: "STUDENT",
+            studentId: studentRow.id,
+            feeVisibility: false,
+            permissions: normalizedPermissions("STUDENT"),
+            request,
+          };
+        }
+      }
+    }
+  }
   if (!m)
     throw new ApiError(
       403,

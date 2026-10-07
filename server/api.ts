@@ -34,6 +34,18 @@ import {
 } from "./security";
 import { bootstrap, initializeAccount, session } from "./seed";
 import { enforceSubscription, portalInfo, withTenantContext } from "./tenancy";
+import { admissionsRoute } from "./routes/admissions";
+import { coreAdminRoute } from "./routes/core-admin";
+import { academicsFacultyRoute } from "./routes/academics-faculty";
+import { lmsRoute } from "./routes/lms";
+import {
+  handleLogin,
+  handleLogout,
+  handleForgotPassword,
+  handleResetPassword,
+  handleChangePassword,
+  getLoginHistory,
+} from "./auth-service";
 import { ensureLocalDatabase } from "./local-db";
 export async function dispatch(request: Request): Promise<Response> {
   await ensureLocalDatabase();
@@ -46,21 +58,38 @@ export async function dispatch(request: Request): Promise<Response> {
         .filter(Boolean),
       p = url.searchParams,
       method = request.method;
-    if (path[0] === "auth" && path[1] === "login" && method === "POST") {
-      const body = await readBody(request);
-      const username = typeof body.username === "string" ? body.username.trim() : "";
-      const password = typeof body.password === "string" ? body.password : "";
-      if (username !== "test" || password !== "tst@123")
-        throw new ApiError(401, "INVALID_CREDENTIALS", "Invalid username or password.");
-      const token = await createLocalSession();
-      const response = ok({ authenticated: true }, requestId);
-      response.headers.set("Set-Cookie", localSessionCookie(token));
-      return response;
-    }
-    if (path[0] === "auth" && path[1] === "logout" && method === "POST") {
-      const response = ok({ authenticated: false }, requestId);
-      response.headers.set("Set-Cookie", clearedLocalSessionCookie());
-      return response;
+    if (path[0] === "auth") {
+      if (path[1] === "login" && method === "POST") {
+        const body = await readBody(request);
+        const result = await handleLogin(request, body);
+        const response = ok(result, requestId);
+        response.headers.set("Set-Cookie", localSessionCookie(result.token));
+        return response;
+      }
+      if (path[1] === "logout" && method === "POST") {
+        const result = await handleLogout(request);
+        const response = ok(result, requestId);
+        response.headers.set("Set-Cookie", clearedLocalSessionCookie());
+        return response;
+      }
+      if (path[1] === "forgot-password" && method === "POST") {
+        const body = await readBody(request);
+        return ok(await handleForgotPassword(body), requestId);
+      }
+      if (path[1] === "reset-password" && method === "POST") {
+        const body = await readBody(request);
+        return ok(await handleResetPassword(body), requestId);
+      }
+      if (path[1] === "change-password" && method === "POST") {
+        const user = await authenticate(request);
+        const body = await readBody(request);
+        return ok(await handleChangePassword(user.userId, body), requestId);
+      }
+      if (path[1] === "login-history" && method === "GET") {
+        const user = await authenticate(request);
+        const history = await getLoginHistory(user.userId);
+        return ok({ rows: history, history }, requestId);
+      }
     }
     const publicResponse = await publicRoute(request, path, method, requestId);
     if (publicResponse) return publicResponse;
@@ -130,6 +159,10 @@ export async function dispatch(request: Request): Promise<Response> {
       };
       const handle = async () => {
         for (const route of [
+          admissionsRoute,
+          coreAdminRoute,
+          academicsFacultyRoute,
+          lmsRoute,
           extensionsRoute,
           settingsRoute,
           usersRoute,

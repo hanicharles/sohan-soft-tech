@@ -61,6 +61,7 @@ import {
   Search,
   Settings2,
   ShieldCheck,
+  UserPlus,
   UserRoundX,
   UsersRound,
   Wallet,
@@ -141,6 +142,26 @@ const Notifications = lazy(() =>
     default: m.Notifications,
   })),
 );
+const Admissions = lazy(() =>
+  import("@/features/admissions/Admissions").then((m) => ({
+    default: m.Admissions,
+  })),
+);
+const CampusesAndCalendar = lazy(() =>
+  import("@/features/organization/CampusesAndCalendar").then((m) => ({
+    default: m.CampusesAndCalendar,
+  })),
+);
+const ParentDashboard = lazy(() =>
+  import("@/features/parent/ParentDashboard").then((m) => ({
+    default: m.ParentDashboard,
+  })),
+);
+const StudentPortal = lazy(() =>
+  import("@/features/student-portal/StudentPortal").then((m) => ({
+    default: m.StudentPortal,
+  })),
+);
 const nav = [
   {
     label: "Dashboard",
@@ -153,6 +174,13 @@ const nav = [
     label: "Students",
     path: "/students",
     icon: GraduationCap,
+    group: "Workspace",
+    permission: "staff",
+  },
+  {
+    label: "Admissions",
+    path: "/admissions",
+    icon: UserPlus,
     group: "Workspace",
     permission: "staff",
   },
@@ -300,6 +328,27 @@ const nav = [
     permission: "admin",
   },
   {
+    label: "Campuses & Calendar",
+    path: "/calendar",
+    icon: CalendarDays,
+    group: "Administration",
+    permission: "admin",
+  },
+  {
+    label: "Student Portal",
+    path: "/student-portal",
+    icon: GraduationCap,
+    group: "Portals",
+    permission: "staff",
+  },
+  {
+    label: "Parent Portal",
+    path: "/parent-portal",
+    icon: UsersRound,
+    group: "Portals",
+    permission: "staff",
+  },
+  {
     label: "PlatformAdmin",
     path: "/admin",
     icon: Building2,
@@ -368,6 +417,24 @@ export default function CampusApp({ slug }: { slug: string }) {
     if (boot)
       saveNavigationFilters(boot.institution.id, boot.user.userId, scope);
   }, [boot, scope]);
+  useEffect(() => {
+    if (!boot) return;
+    const role = boot.user?.role;
+    const currentSubpath = pathname.replace(/^\//, "");
+    if (!currentSubpath) {
+      if (role === "STUDENT") {
+        router.replace(basePath + "/student-portal");
+      } else if (role === "PARENT") {
+        router.replace(basePath + "/parent-portal");
+      } else if (role === "FACULTY" || role === "TEACHER") {
+        router.replace(basePath + "/academic");
+      } else if (role === "ACCOUNTANT") {
+        router.replace(basePath + "/fees");
+      } else if (role === "STAFF" || role === "RECEPTIONIST") {
+        router.replace(basePath + "/admissions");
+      }
+    }
+  }, [boot, pathname, basePath, router]);
   const query = useCallback(
     (extra: Record<string, string> = {}) =>
       new URLSearchParams(
@@ -539,6 +606,10 @@ export default function CampusApp({ slug }: { slug: string }) {
   else if (current === "settings") page = <Settings />;
   else if (current === "audit") page = <AuditLogs />;
   else if (current === "notifications") page = <Notifications />;
+  else if (current === "admissions") page = <Admissions />;
+  else if (current === "calendar") page = <CampusesAndCalendar />;
+  else if (current === "student-portal") page = <StudentPortal />;
+  else if (current === "parent-portal") page = <ParentDashboard />;
   else
     page = (
       <PageHead
@@ -565,6 +636,10 @@ export default function CampusApp({ slug }: { slug: string }) {
     cash: "payments.collect",
     notifications: "payments.view",
     audit: "settings.view",
+    admissions: "admissions.view",
+    calendar: "settings.view",
+    "student-portal": "students.view",
+    "parent-portal": "students.view",
   };
   if (required[current] && !can(required[current]))
     page = (
@@ -661,6 +736,10 @@ function CampusSidebar({
     "/users": "users.view",
     "/settings": "settings.view",
     "/audit": "settings.view",
+    "/admissions": "admissions.view",
+    "/calendar": "settings.view",
+    "/student-portal": "students.view",
+    "/parent-portal": "students.view",
   };
   const available = nav.filter(
     (n) =>

@@ -45,7 +45,12 @@ export function routeArea(path: string[]) {
   const areas: Record<string, string> = {
     students: "students",
     parents: "students",
+    admissions: "students",
+    "parent-portal": "students",
+    "student-portal": "students",
     years: "academics",
+    calendar: "academics",
+    campuses: "settings",
     catalog: ["components", "structures", "benefits"].includes(path[1])
       ? "fees"
       : "academics",
@@ -71,6 +76,15 @@ export function routeArea(path: string[]) {
     certificates: "fees",
     "parent-links": "students",
     rollovers: "academics",
+    departments: "academics",
+    programs: "academics",
+    semesters: "academics",
+    subjects: "academics",
+    faculty: "academics",
+    timetable: "academics",
+    attendance: "academics",
+    leaves: "academics",
+    lms: "academics",
   };
   return areas[path[0]];
 }
@@ -83,8 +97,23 @@ export function guardRoute(
   const k = path[0],
     read = method === "GET";
   let permission: Permission | undefined;
-  if (["students", "parents", "uploads", "search"].includes(k))
+  if (["students", "parents", "uploads", "search", "admissions", "parent-portal", "student-portal"].includes(k))
     permission = read ? "students.view" : "students.manage";
+  if (["calendar", "campuses"].includes(k))
+    permission = read ? "academics.view" : "settings.manage";
+  if (
+    [
+      "departments",
+      "programs",
+      "semesters",
+      "subjects",
+      "faculty",
+      "timetable",
+    ].includes(k)
+  )
+    permission = read ? "academics.view" : "academics.manage";
+  if (["attendance", "leaves", "lms"].includes(k))
+    permission = "academics.view";
   if (k === "catalog")
     permission =
       path[1] === "parents"

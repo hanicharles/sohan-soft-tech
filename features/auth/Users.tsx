@@ -12,18 +12,21 @@ import {
   Picker,
   Status,
 } from "@/components/campus/ui";
+import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
+  allRoles,
   normalizedPermissions,
   permissionLabels,
   permissions,
   roleLabel,
   staffRoles,
 } from "@/lib/permissions";
-import { Plus, ShieldCheck } from "lucide-react";
+import { History, KeyRound, Lock, Plus, Search, ShieldCheck, Trash2 } from "lucide-react";
 import { useSearchParams } from "next/navigation";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { toast } from "sonner";
+
 export function Users() {
   const { boot, request, refresh, can, reload } = useApp(),
     r = useResource("users"),
@@ -38,14 +41,26 @@ export function Users() {
             permissions: normalizedPermissions("ACCOUNTANT"),
             sectionId: "",
             feeVisibility: false,
+            initialPassword: "",
           }
         : null,
     ),
     [confirm, setConfirm] = useState<Row | null>(null),
+    [resetPasswordUser, setResetPasswordUser] = useState<Row | null>(null),
+    [newPassword, setNewPassword] = useState("Temp@12345"),
+    [loginHistoryUser, setLoginHistoryUser] = useState<Row | null>(null),
+    [loginHistory, setLoginHistory] = useState<Row[]>([]),
+    [loadingHistory, setLoadingHistory] = useState(false),
+    [search, setSearch] = useState(""),
+    [roleFilter, setRoleFilter] = useState("ALL"),
+    [statusFilter, setStatusFilter] = useState("ALL"),
+    [page, setPage] = useState(1),
     [busy, setBusy] = useState(false),
     [error, setError] = useState("");
+
   const manage = can("users.manage");
   const set = (k: string, v: unknown) => setD((p) => ({ ...p, [k]: v }));
+
   const edit = (m: Row) => {
     setError("");
     setD({
@@ -63,6 +78,63 @@ export function Users() {
       active: !!m.active,
     });
   };
+
+  const handleOpenLoginHistory = async (m: Row) => {
+    setLoginHistoryUser(m);
+    setLoadingHistory(true);
+    try {
+      const res = await request<{ history: Row[] }>(`users/${m.id}/login-history`);
+      setLoginHistory(res.history || []);
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setLoadingHistory(false);
+    }
+  };
+
+  const handleAdminResetPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!resetPasswordUser) return;
+    setBusy(true);
+    try {
+      await request(`users/${resetPasswordUser.id}/reset-password`, {
+        method: "POST",
+        body: { newPassword },
+      });
+      toast.success(`Password updated for ${resetPasswordUser.name || resetPasswordUser.email}`);
+      setResetPasswordUser(null);
+      setNewPassword("Temp@12345");
+    } catch (err) {
+      toast.error((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const members = r.data?.members || [];
+  const invitations = r.data?.invitations || [];
+
+  const filteredMembers = useMemo(() => {
+    return members.filter((m: Row) => {
+      const matchSearch =
+        !search ||
+        m.name?.toLowerCase().includes(search.toLowerCase()) ||
+        m.email?.toLowerCase().includes(search.toLowerCase()) ||
+        m.mobile?.includes(search);
+      const matchRole = roleFilter === "ALL" || m.role === roleFilter;
+      const matchStatus =
+        statusFilter === "ALL" ||
+        (statusFilter === "Active" ? Boolean(m.active) : !m.active);
+      return matchSearch && matchRole && matchStatus;
+    });
+  }, [members, search, roleFilter, statusFilter]);
+
+  const pageSize = 10;
+  const paginatedMembers = useMemo(() => {
+    const start = (page - 1) * pageSize;
+    return filteredMembers.slice(start, start + pageSize);
+  }, [filteredMembers, page]);
+
   return (
     <>
       <PageHead
@@ -82,6 +154,7 @@ export function Users() {
                   permissions: normalizedPermissions("ACCOUNTANT"),
                   sectionId: "",
                   feeVisibility: false,
+                  initialPassword: "",
                 });
               }}
             >
@@ -99,12 +172,57 @@ export function Users() {
           accounts.
         </span>
       </div>
+
       <Card>
         <Tabs defaultValue="members">
           <TabsList>
-            <TabsTrigger value="members">Staff users</TabsTrigger>
-            <TabsTrigger value="pending">Access grants</TabsTrigger>
+            <TabsTrigger value="members">Staff users ({members.length})</TabsTrigger>
+            <TabsTrigger value="pending">Access grants ({invitations.length})</TabsTrigger>
           </TabsList>
+
+          <div className="flex flex-wrap items-center justify-between gap-3 my-4">
+            <div className="relative flex-1 min-w-[220px] max-w-sm">
+              <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Search by name, email, phone..."
+                value={search}
+                onChange={(e) => {
+                  setSearch(e.target.value);
+                  setPage(1);
+                }}
+                className="pl-9"
+              />
+            </div>
+            <div className="flex items-center gap-2">
+              <Picker
+                value={roleFilter}
+                onChange={(v) => {
+                  setRoleFilter(v);
+                  setPage(1);
+                }}
+                options={[
+                  { value: "ALL", label: "All Roles" },
+                  ...allRoles.map((role: string) => ({
+                    value: role,
+                    label: roleLabel(role),
+                  })),
+                ]}
+              />
+              <Picker
+                value={statusFilter}
+                onChange={(v) => {
+                  setStatusFilter(v);
+                  setPage(1);
+                }}
+                options={[
+                  { value: "ALL", label: "All Statuses" },
+                  { value: "Active", label: "Active" },
+                  { value: "Disabled", label: "Disabled" },
+                ]}
+              />
+            </div>
+          </div>
+
           {r.error ? (
             <Failure message={r.error} retry={r.retry} />
           ) : (
@@ -112,7 +230,7 @@ export function Users() {
               <TabsContent value="members">
                 <DataTable
                   loading={r.loading}
-                  rows={r.data?.members || []}
+                  rows={paginatedMembers}
                   columns={[
                     {
                       key: "name",
@@ -165,22 +283,76 @@ export function Users() {
                             <Button
                               size="sm"
                               variant="ghost"
+                              onClick={() => setResetPasswordUser(m)}
+                            >
+                              <KeyRound size={14} className="mr-1" />
+                              Reset Pwd
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => handleOpenLoginHistory(m)}
+                            >
+                              <History size={14} className="mr-1" />
+                              History
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
                               onClick={() =>
                                 setConfirm({ ...m, action: "reset" })
                               }
                             >
                               Reset Access
                             </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="text-red-600 hover:text-red-700"
+                              onClick={() =>
+                                setConfirm({ ...m, action: "delete" })
+                              }
+                            >
+                              <Trash2 size={14} />
+                            </Button>
                           </div>
                         ) : null,
                     },
                   ]}
                 />
+                {filteredMembers.length > pageSize && (
+                  <div className="flex items-center justify-between mt-4 px-2 text-sm text-muted-foreground">
+                    <div>
+                      Showing {(page - 1) * pageSize + 1} to{" "}
+                      {Math.min(page * pageSize, filteredMembers.length)} of{" "}
+                      {filteredMembers.length} users
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={page === 1}
+                        onClick={() => setPage((p) => p - 1)}
+                      >
+                        Previous
+                      </Button>
+                      <span>Page {page}</span>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={page * pageSize >= filteredMembers.length}
+                        onClick={() => setPage((p) => p + 1)}
+                      >
+                        Next
+                      </Button>
+                    </div>
+                  </div>
+                )}
               </TabsContent>
               <TabsContent value="pending">
                 <DataTable
                   loading={r.loading}
-                  rows={r.data?.invitations || []}
+                  rows={invitations}
                   columns={[
                     { key: "display_name", label: "Name" },
                     { key: "email", label: "Email" },
@@ -240,6 +412,8 @@ export function Users() {
           )}
         </Tabs>
       </Card>
+
+      {/* CREATE / EDIT USER DIALOG */}
       <FormDialog
         open={!!d}
         onClose={() => setD(null)}
@@ -252,11 +426,29 @@ export function Users() {
           setBusy(true);
           setError("");
           try {
-            const body = { ...d, sectionId: d!.sectionId || undefined };
-            await request(d!.id ? "users/" + d!.id : "users/invite", {
-              method: d!.id ? "PATCH" : "POST",
-              body,
-            });
+            const body: Record<string, any> = {
+              ...d,
+              sectionId: d?.sectionId || undefined,
+            };
+            if (!d?.id && body.initialPassword) {
+              await request("users", {
+                method: "POST",
+                body: {
+                  email: body.email,
+                  fullName: body.fullName,
+                  mobile: body.mobile,
+                  role: body.role,
+                  permissions: body.permissions,
+                  password: body.initialPassword,
+                  sectionId: body.sectionId,
+                },
+              });
+            } else {
+              await request(d!.id ? "users/" + d!.id : "users/invite", {
+                method: d!.id ? "PATCH" : "POST",
+                body,
+              });
+            }
             await reload();
             refresh();
             toast.success(
@@ -315,6 +507,16 @@ export function Users() {
                   }))}
                 />
               </Field>
+              {!d.id && (
+                <Field label="Initial Password (Optional)">
+                  <Input
+                    type="password"
+                    placeholder="Auto-generated if left blank"
+                    value={d.initialPassword || ""}
+                    onChange={(e) => set("initialPassword", e.target.value)}
+                  />
+                </Field>
+              )}
               {d.role === "TEACHER" && (
                 <Field label="Assigned section" required>
                   <Picker
@@ -365,34 +567,43 @@ export function Users() {
           </>
         )}
       </FormDialog>
+
+      {/* CONFIRM ACTION (ENABLE / DISABLE / REVOKE / RESET / DELETE) */}
       <FormDialog
         open={!!confirm}
         onClose={() => setConfirm(null)}
         title={
           confirm?.action === "reset"
             ? "Reset Staff Access"
-            : "Change Staff Access"
+            : confirm?.action === "delete"
+              ? "Delete Staff User"
+              : "Change Staff Access"
         }
         busy={busy}
         onSubmit={async (e) => {
           e.preventDefault();
           setBusy(true);
           try {
-            if (confirm!.action === "reset")
+            if (confirm!.action === "reset") {
               await request("users/" + confirm!.id + "/reset-access", {
                 method: "POST",
                 body: {},
               });
-            else if (confirm!.action === "revoke")
+            } else if (confirm!.action === "delete") {
+              await request("users/" + confirm!.id, {
+                method: "DELETE",
+              });
+            } else if (confirm!.action === "revoke") {
               await request("invitations/" + confirm!.id, {
                 method: "PATCH",
                 body: {},
               });
-            else
+            } else {
               await request("users/" + confirm!.id, {
                 method: "PATCH",
                 body: { active: confirm!.action === "enable" },
               });
+            }
             await reload();
             refresh();
             toast.success("Staff access updated.");
@@ -407,8 +618,77 @@ export function Users() {
         <p>
           {confirm?.action === "reset"
             ? "Resetting access disables the current institution membership and creates a fresh account access grant."
-            : `Confirm ${confirm?.action} access for ${confirm?.name || confirm?.email}.`}
+            : confirm?.action === "delete"
+              ? `Are you sure you want to completely remove ${confirm?.name || confirm?.email} from this institution?`
+              : `Confirm ${confirm?.action} access for ${confirm?.name || confirm?.email}.`}
         </p>
+      </FormDialog>
+
+      {/* ADMIN RESET PASSWORD MODAL */}
+      <FormDialog
+        open={!!resetPasswordUser}
+        onClose={() => setResetPasswordUser(null)}
+        title={`Reset Password · ${resetPasswordUser?.name || resetPasswordUser?.email}`}
+        description="Set a new password directly for this user."
+        busy={busy}
+        onSubmit={handleAdminResetPassword}
+      >
+        <Field label="New Password" required hint="Minimum 6 characters">
+          <Input
+            required
+            type="password"
+            value={newPassword}
+            onChange={(e) => setNewPassword(e.target.value)}
+          />
+        </Field>
+      </FormDialog>
+
+      {/* LOGIN HISTORY MODAL */}
+      <FormDialog
+        open={!!loginHistoryUser}
+        onClose={() => setLoginHistoryUser(null)}
+        title={`Login History · ${loginHistoryUser?.name || loginHistoryUser?.email}`}
+        description="Audit trail of recent successful and failed sign-in attempts."
+        wide
+      >
+        {loadingHistory ? (
+          <div className="py-8 text-center text-muted-foreground text-sm">
+            Loading login history...
+          </div>
+        ) : loginHistory.length === 0 ? (
+          <div className="py-6 text-center text-muted-foreground text-sm">
+            No login records found for this account.
+          </div>
+        ) : (
+          <div className="space-y-2 max-h-96 overflow-y-auto">
+            {loginHistory.map((h: Row) => (
+              <div
+                key={h.id}
+                className="flex items-center justify-between p-3 rounded border bg-card text-sm"
+              >
+                <div>
+                  <div className="flex items-center gap-2">
+                    <Status
+                      value={h.status === "SUCCESS" ? "Active" : "Disabled"}
+                    />
+                    <strong className="text-xs">
+                      {h.status === "SUCCESS" ? "Signed in" : "Failed attempt"}
+                    </strong>
+                    {h.failure_reason && (
+                      <span className="text-xs text-red-500">({h.failure_reason})</span>
+                    )}
+                  </div>
+                  <div className="text-xs text-muted-foreground mt-1">
+                    IP: {h.ip_address || "127.0.0.1"} · {h.user_agent ? h.user_agent.slice(0, 40) + "..." : "Standard Browser"}
+                  </div>
+                </div>
+                <div className="text-xs text-muted-foreground font-mono">
+                  {h.created_at ? h.created_at.replace("T", " ").slice(0, 19) : "—"}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </FormDialog>
     </>
   );

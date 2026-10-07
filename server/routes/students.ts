@@ -1,7 +1,7 @@
 import { env } from "cloudflare:workers";
 import { z } from "zod";
 import { createStudent, promote } from "../catalog";
-import { all, batch, insert, now, Row, stmt, uuid } from "../db";
+import { all, batch, insert, now, one, Row, stmt, uuid } from "../db";
 import { financialProfile, listStudents } from "../queries";
 import { accessStudent, ApiError, audit, own, permit } from "../security";
 import { ok, RouteContext } from "./shared";
@@ -151,6 +151,79 @@ export async function studentsRoute(
       ]);
       return ok({ saved: true }, requestId);
     }
+  }
+  if (method === "PATCH" && path[0] === "students" && path[1]) {
+    permit(actor, "students.manage");
+    const student = await own(actor, "students", path[1]);
+    const schema = z.object({
+      name: z.string().trim().min(1).optional(),
+      dob: z.string().optional().or(z.literal("")),
+      gender: z.enum(["Male", "Female", "Other", "Not specified"]).optional(),
+      bloodGroup: z.string().optional(),
+      aadhaarLast4: z.string().optional(),
+      previousSchool: z.string().optional(),
+      status: z.enum(["Active", "Inactive", "Transferred", "Graduated", "Left", "Suspended", "Archived"]).optional(),
+      clearance: z.boolean().optional(),
+      yearId: z.string().optional(),
+      reason: z.string().optional(),
+    });
+    const d = schema.parse(body);
+    const statements: any[] = [];
+
+    if (d.clearance) {
+      if (!d.yearId)
+        throw new ApiError(422, "YEAR_REQUIRED", "Select the academic year.");
+      const balance = await one(
+        "SELECT outstanding_paise FROM student_balances WHERE institution_id=? AND student_id=? AND academic_year_id=?",
+        [actor.institutionId, student.id, d.yearId],
+      );
+      if ((balance?.outstanding_paise || 0) > 0)
+        throw new ApiError(
+          409,
+          "FEES_OUTSTANDING",
+          "Clear outstanding fees before marking financial clearance.",
+        );
+      statements.push(
+        stmt(
+          "UPDATE enrollments SET clearance='Cleared',updated_at=?,updated_by=? WHERE institution_id=? AND student_id=? AND academic_year_id=?",
+          [now(), actor.userId, actor.institutionId, student.id, d.yearId],
+        ),
+      );
+    }
+
+    const updates: string[] = [];
+    const values: any[] = [];
+
+    if (d.name) { updates.push("name=?"); values.push(d.name); }
+    if (d.dob !== undefined) { updates.push("dob=?"); values.push(d.dob || null); }
+    if (d.gender) { updates.push("gender=?"); values.push(d.gender); }
+    if (d.bloodGroup !== undefined) { updates.push("blood_group=?"); values.push(d.bloodGroup || null); }
+    if (d.aadhaarLast4 !== undefined) { updates.push("aadhaar_last4=?"); values.push(d.aadhaarLast4 || null); }
+    if (d.previousSchool !== undefined) { updates.push("previous_school=?"); values.push(d.previousSchool); }
+    if (d.status) { updates.push("status=?"); values.push(d.status); }
+
+    if (updates.length > 0) {
+      updates.push("updated_at=?", "updated_by=?");
+      values.push(now(), actor.userId, actor.institutionId, student.id);
+      statements.push(
+        stmt(`UPDATE students SET ${updates.join(", ")} WHERE institution_id=? AND id=?`, values),
+      );
+
+      if (d.status && d.status !== student.status) {
+        statements.push(
+          stmt(
+            "INSERT INTO student_history(id, institution_id, student_id, action, details, actor_id, actor_name, created_at) VALUES (?, ?, ?, 'Status Changed', ?, ?, ?, ?)",
+            [uuid(), actor.institutionId, student.id, JSON.stringify({ oldStatus: student.status, newStatus: d.status }), actor.userId, actor.name, now()],
+          ),
+        );
+      }
+    }
+
+    statements.push(
+      audit(actor, "Updated student details / clearance", "students", student.id, student, d),
+    );
+    await batch(statements);
+    return ok({ updated: true, saved: true }, requestId);
   }
   return null;
 }

@@ -1,16 +1,27 @@
 export const staffRoles = [
   "INSTITUTION_ADMIN",
+  "ADMIN",
+  "PRINCIPAL",
+  "FACULTY",
+  "TEACHER",
   "ACCOUNTANT",
   "FEE_COLLECTOR",
   "FEE_COUNTER_CASHIER",
   "AUDITOR",
-  "TEACHER",
+  "STAFF",
   "RECEPTIONIST",
   "CUSTOM",
+] as const;
+export const allRoles = [
+  ...staffRoles,
+  "STUDENT",
+  "PARENT",
 ] as const;
 export const modules = [
   "students",
   "academics",
+  "admissions",
+  "calendar",
   "fees",
   "payments",
   "receipts",
@@ -23,6 +34,9 @@ export const permissions = [
   "students.manage",
   "academics.view",
   "academics.manage",
+  "admissions.view",
+  "admissions.manage",
+  "calendar.manage",
   "fees.view",
   "fees.manage",
   "fees.invoice",
@@ -46,6 +60,9 @@ export const permissionLabels: Record<Permission, string> = {
   "students.manage": "Create and edit students",
   "academics.view": "View academics",
   "academics.manage": "Manage academics",
+  "admissions.view": "View admissions & enquiries",
+  "admissions.manage": "Manage enquiries, applications and enrollment",
+  "calendar.manage": "Manage academic calendar, working days & holidays",
   "fees.view": "View fee details",
   "fees.manage": "Configure fees and concessions",
   "fees.invoice": "Generate invoices",
@@ -65,6 +82,30 @@ export const permissionLabels: Record<Permission, string> = {
 };
 const defaults: Record<string, Permission[]> = {
   INSTITUTION_ADMIN: [...permissions],
+  ADMIN: [...permissions],
+  PRINCIPAL: [
+    "students.view",
+    "students.manage",
+    "academics.view",
+    "academics.manage",
+    "admissions.view",
+    "admissions.manage",
+    "calendar.manage",
+    "fees.view",
+    "reports.view",
+    "reports.export",
+    "users.view",
+    "settings.view",
+  ],
+  FACULTY: ["students.view", "academics.view"],
+  TEACHER: ["students.view", "academics.view"],
+  STAFF: [
+    "students.view",
+    "students.manage",
+    "admissions.view",
+    "admissions.manage",
+    "academics.view",
+  ],
   ACCOUNTANT: [
     "payments.manage",
     "cash.close",
@@ -98,8 +139,15 @@ const defaults: Record<string, Permission[]> = {
     "payments.collect",
     "receipts.view",
   ],
-  TEACHER: ["students.view", "academics.view"],
-  RECEPTIONIST: ["students.view", "students.manage", "academics.view"],
+  RECEPTIONIST: [
+    "students.view",
+    "students.manage",
+    "admissions.view",
+    "admissions.manage",
+    "academics.view",
+  ],
+  STUDENT: ["students.view", "academics.view"],
+  PARENT: ["students.view", "fees.view"],
   CUSTOM: [],
 };
 export function normalizedPermissions(
@@ -120,7 +168,7 @@ export function normalizedPermissions(
         ? selected
         : defaults[role] || [],
   );
-  if (role === "INSTITUTION_ADMIN") return [...permissions];
+  if (role === "INSTITUTION_ADMIN" || role === "ADMIN") return [...permissions];
   if (["FEE_COUNTER_CASHIER", "AUDITOR"].includes(role))
     return [...defaults[role]];
   for (const value of [...result]) {

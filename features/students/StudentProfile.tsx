@@ -45,6 +45,7 @@ import { Phone, Plus, ShieldCheck, UserRound } from "lucide-react";
 import { lazy, Suspense, useState } from "react";
 import { toast } from "sonner";
 import { ParentAccess } from "./ParentAccess";
+import { StudentLifecycleAndAcademics } from "./StudentLifecycleAndAcademics";
 import { TaxEvidence } from "./TaxEvidence";
 const FeeHistory = lazy(() => import("./FeeHistory"));
 const Documents = lazy(() => import("./Documents"));
@@ -90,6 +91,12 @@ export function StudentProfile({
     componentId: "",
     benefitId: "",
     dueDate: "",
+  });
+  const studentRecord = r.data?.student || {};
+  const lifecycle = StudentLifecycleAndAcademics({
+    studentId: id,
+    student: studentRecord,
+    onRefresh: refresh,
   });
   if (r.loading && !r.data) return <Loading />;
   if (r.error) return <Failure message={r.error} retry={r.retry} />;
@@ -242,6 +249,11 @@ export function StudentProfile({
               "Scholarships",
               "Notifications",
               "Guardian",
+              "Emergency",
+              "Academics",
+              "LMS",
+              "Transfer & Status",
+              "Timeline",
             ].map((name) => (
               <TabsTrigger
                 key={name}
@@ -573,6 +585,21 @@ export function StudentProfile({
               ]}
             />
           </Card>
+        </TabsContent>
+        <TabsContent value="emergency">
+          {lifecycle.renderEmergencyTab()}
+        </TabsContent>
+        <TabsContent value="academics">
+          {lifecycle.renderAcademicsTab()}
+        </TabsContent>
+        <TabsContent value="lms">
+          {lifecycle.renderLmsTab()}
+        </TabsContent>
+        <TabsContent value="transfer-&-status">
+          {lifecycle.renderLifecycleTab()}
+        </TabsContent>
+        <TabsContent value="timeline">
+          {lifecycle.renderTimelineTab()}
         </TabsContent>
       </Tabs>
       {collect && (
@@ -918,6 +945,7 @@ export function StudentProfile({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      {lifecycle.renderDialogs()}
     </>
   );
 }

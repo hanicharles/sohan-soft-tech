@@ -15,6 +15,7 @@ import {
 } from "./db";
 import { actorFor, audit, authenticate, hasPermission } from "./security";
 import { tenantSubscription, tenantUsage, upgradeTenantData } from "./tenancy";
+import { hashPassword } from "./auth-service";
 export const defaultSettings = {
   lateFee: {
     enabled: false,
@@ -137,6 +138,8 @@ export async function bootstrap(request: Request) {
   await initializeAccount(request);
   const actor = await actorFor(request),
     tenantId = actor.institutionId;
+  await ensureMember1Demonstration(tenantId, actor.userId);
+  await ensureMember2AndMember3Demonstration(tenantId, actor.userId);
   const institution = await one("SELECT * FROM institutions WHERE id=?", [
     tenantId,
   ]);
@@ -144,29 +147,52 @@ export async function bootstrap(request: Request) {
     "SELECT m.role,m.institution_id,i.name institution_name,i.slug FROM memberships m JOIN institutions i ON i.id=m.institution_id WHERE m.user_id=? AND m.active=1 AND m.role NOT IN ('SUPER_ADMIN','PARENT','STUDENT')",
     [actor.userId],
   );
-  const [years, campuses, classes, sections, streams, components, benefits] =
-    await Promise.all([
-      all(
-        "SELECT * FROM academic_years WHERE institution_id=? ORDER BY start_date DESC",
-        [tenantId],
-      ),
-      all("SELECT * FROM campuses WHERE institution_id=?", [tenantId]),
-      all("SELECT * FROM classes WHERE institution_id=? ORDER BY sort_order", [
-        tenantId,
-      ]),
-      all(
-        "SELECT sec.*,c.name class_name,st.name stream_name FROM sections sec JOIN classes c ON c.id=sec.class_id LEFT JOIN streams st ON st.id=sec.stream_id WHERE sec.institution_id=? ORDER BY c.sort_order,sec.name",
-        [tenantId],
-      ),
-      all("SELECT * FROM streams WHERE institution_id=?", [tenantId]),
-      all(
-        "SELECT * FROM fee_components WHERE institution_id=? ORDER BY sort_order",
-        [tenantId],
-      ),
-      all("SELECT * FROM benefits WHERE institution_id=? ORDER BY name", [
-        tenantId,
-      ]),
-    ]);
+  const [
+    years,
+    campuses,
+    classes,
+    sections,
+    streams,
+    components,
+    benefits,
+    departments,
+    programs,
+    subjects,
+    facultyList,
+  ] = await Promise.all([
+    all(
+      "SELECT * FROM academic_years WHERE institution_id=? ORDER BY start_date DESC",
+      [tenantId],
+    ),
+    all("SELECT * FROM campuses WHERE institution_id=?", [tenantId]),
+    all("SELECT * FROM classes WHERE institution_id=? ORDER BY sort_order", [
+      tenantId,
+    ]),
+    all(
+      "SELECT sec.*,c.name class_name,st.name stream_name FROM sections sec JOIN classes c ON c.id=sec.class_id LEFT JOIN streams st ON st.id=sec.stream_id WHERE sec.institution_id=? ORDER BY c.sort_order,sec.name",
+      [tenantId],
+    ),
+    all("SELECT * FROM streams WHERE institution_id=?", [tenantId]),
+    all(
+      "SELECT * FROM fee_components WHERE institution_id=? ORDER BY sort_order",
+      [tenantId],
+    ),
+    all("SELECT * FROM benefits WHERE institution_id=? ORDER BY name", [
+      tenantId,
+    ]),
+    all("SELECT * FROM departments WHERE institution_id=? ORDER BY name", [
+      tenantId,
+    ]).catch(() => []),
+    all("SELECT * FROM programs WHERE institution_id=? ORDER BY name", [
+      tenantId,
+    ]).catch(() => []),
+    all("SELECT * FROM subjects WHERE institution_id=? ORDER BY name", [
+      tenantId,
+    ]).catch(() => []),
+    all("SELECT * FROM faculty WHERE institution_id=? ORDER BY name", [
+      tenantId,
+    ]).catch(() => []),
+  ]);
   const providers = await all(
     "SELECT provider,mode FROM provider_configs WHERE institution_id=?",
     [tenantId],
@@ -199,6 +225,10 @@ export async function bootstrap(request: Request) {
     streams,
     components: hasPermission(actor, "fees.view") ? components : [],
     benefits: hasPermission(actor, "fees.view") ? benefits : [],
+    departments,
+    programs,
+    subjects,
+    faculty: facultyList,
   };
 }
 async function seedInstitution(user: {
@@ -714,3 +744,544 @@ async function seedInstitution(user: {
       throw error;
   }
 }
+
+export async function ensureMember1Demonstration(tenantId: string, actorId: string) {
+  try {
+    // 1. Working days
+    const hasWorkingDays = await one("SELECT id FROM working_days WHERE institution_id=? LIMIT 1", [tenantId]);
+    if (!hasWorkingDays) {
+      const days = [
+        { day: 0, isWorking: 0, open: "08:00", close: "15:00" },
+        { day: 1, isWorking: 1, open: "08:00", close: "15:00" },
+        { day: 2, isWorking: 1, open: "08:00", close: "15:00" },
+        { day: 3, isWorking: 1, open: "08:00", close: "15:00" },
+        { day: 4, isWorking: 1, open: "08:00", close: "15:00" },
+        { day: 5, isWorking: 1, open: "08:00", close: "15:00" },
+        { day: 6, isWorking: 1, open: "08:00", close: "13:00" },
+      ];
+      for (const d of days) {
+        await stmt(
+          `INSERT OR IGNORE INTO working_days(id, institution_id, day_of_week, is_working, open_time, close_time, created_at, updated_at, created_by, updated_by)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [uuid(), tenantId, d.day, d.isWorking, d.open, d.close, now(), now(), actorId, actorId],
+        ).run();
+      }
+    }
+
+    // 2. Holidays
+    const hasHolidays = await one("SELECT id FROM holidays WHERE institution_id=? LIMIT 1", [tenantId]);
+    if (!hasHolidays) {
+      const holidaysData = [
+        { title: "Independence Day", date: "2026-08-15", type: "National", desc: "Celebration of Indian Independence" },
+        { title: "Gandhi Jayanti", date: "2026-10-02", type: "National", desc: "Mahatma Gandhi Birthday" },
+        { title: "Diwali Holidays", date: "2026-11-08", endDate: "2026-11-12", type: "Festival", desc: "Deepawali Vacation" },
+        { title: "Winter Break", date: "2026-12-24", endDate: "2027-01-02", type: "Institutional", desc: "Year-end winter recess" },
+        { title: "Republic Day", date: "2027-01-26", type: "National", desc: "Celebration of the Constitution of India" },
+      ];
+      for (const h of holidaysData) {
+        await stmt(
+          `INSERT INTO holidays(id, institution_id, title, date, end_date, type, description, created_at, updated_at, created_by, updated_by)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [uuid(), tenantId, h.title, h.date, h.endDate || null, h.type, h.desc, now(), now(), actorId, actorId],
+        ).run();
+      }
+    }
+
+    // 3. Campuses
+    const campusCount = await one<{ count: number }>("SELECT COUNT(*) as count FROM campuses WHERE institution_id=?", [tenantId]);
+    if ((campusCount?.count || 0) < 2) {
+      const extraCampuses = [
+        { name: "North Branch Campus", address: "Plot 42, Knowledge Park, North Sector" },
+        { name: "South City Campus", address: "88 Ring Road, South City" },
+      ];
+      for (const c of extraCampuses) {
+        await stmt(
+          `INSERT OR IGNORE INTO campuses(id, institution_id, name, address, created_at, updated_at, created_by, updated_by)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          [uuid(), tenantId, c.name, c.address, now(), now(), actorId, actorId],
+        ).run();
+      }
+    }
+
+    // 4. Admissions Enquiries & Applications
+    const hasEnquiries = await one("SELECT id FROM admissions_enquiries WHERE institution_id=? LIMIT 1", [tenantId]);
+    const year = await one<{ id: string }>("SELECT id FROM academic_years WHERE institution_id=? ORDER BY start_date DESC LIMIT 1", [tenantId]);
+    if (!hasEnquiries && year) {
+      const enquiries = [
+        { sName: "Rohan Gupta", pName: "Vikas Gupta", phone: "9876543211", email: "vikas.gupta@example.test", cls: "Class 6", src: "Walk-in", st: "New" },
+        { sName: "Ananya Verma", pName: "Suresh Verma", phone: "9876543212", email: "suresh.v@example.test", cls: "Class 8", src: "Website", st: "Contacted" },
+        { sName: "Kabir Singh", pName: "Deepak Singh", phone: "9876543213", email: "deepak.s@example.test", cls: "Class 10", src: "Referral", st: "Converted" },
+        { sName: "Meera Nair", pName: "Ravi Nair", phone: "9876543214", email: "ravi.nair@example.test", cls: "Class 9", src: "Call", st: "Closed" },
+      ];
+      for (const eq of enquiries) {
+        await stmt(
+          `INSERT INTO admissions_enquiries(id, institution_id, academic_year_id, student_name, parent_name, email, phone, class_applied, source, notes, status, created_at, updated_at, created_by, updated_by)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'Initial consultation completed', ?, ?, ?, ?, ?)`,
+          [uuid(), tenantId, year.id, eq.sName, eq.pName, eq.email, eq.phone, eq.cls, eq.src, eq.st, now(), now(), actorId, actorId],
+        ).run();
+      }
+
+      const applications = [
+        { appNum: "APP/2026/0001", sName: "Dev Sharma", pName: "Manoj Sharma", phone: "9876543215", st: "Applied", prevSchool: "Greenwood High", prevGrade: "5", prevPct: "88%" },
+        { appNum: "APP/2026/0002", sName: "Ishaan Joshi", pName: "Alok Joshi", phone: "9876543216", st: "Interview Scheduled", intDate: "2026-11-20", intTime: "10:00 AM", prevSchool: "St. Xavier's", prevGrade: "6", prevPct: "91%" },
+        { appNum: "APP/2026/0003", sName: "Priya Patel", pName: "Kiran Patel", phone: "9876543217", st: "Selected", intResult: "Cleared", prevSchool: "DPS City", prevGrade: "7", prevPct: "94%" },
+        { appNum: "APP/2026/0004", sName: "Aditya Rao", pName: "Sanjay Rao", phone: "9876543218", st: "Confirmed", intResult: "Cleared", prevSchool: "Modern Public", prevGrade: "8", prevPct: "86%" },
+      ];
+      for (const app of applications) {
+        const appId = uuid();
+        await stmt(
+          `INSERT INTO admissions_applications(
+            id, institution_id, academic_year_id, application_number,
+            student_name, parent_name, parent_phone, previous_school, previous_grade, previous_percentage,
+            status, interview_date, interview_time, interview_result, selection_notes,
+            created_at, updated_at, created_by, updated_by
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Approved by admissions committee', ?, ?, ?, ?)`,
+          [
+            appId,
+            tenantId,
+            year.id,
+            app.appNum,
+            app.sName,
+            app.pName,
+            app.phone,
+            app.prevSchool,
+            app.prevGrade,
+            app.prevPct,
+            app.st,
+            app.intDate || null,
+            app.intTime || null,
+            app.intResult || "Pending",
+            now(),
+            now(),
+            actorId,
+            actorId,
+          ],
+        ).run();
+
+        await stmt(
+          `INSERT INTO admissions_documents(id, institution_id, application_id, document_name, document_type, verification_status, created_at, updated_at, created_by, updated_by)
+           VALUES (?, ?, ?, 'Birth Certificate', 'Birth Certificate', 'Verified', ?, ?, ?, ?)`,
+          [uuid(), tenantId, appId, now(), now(), actorId, actorId],
+        ).run();
+      }
+    }
+
+    // 5. Seed Users for all 8 roles & Credentials
+    const demoUsers = [
+      { email: "superadmin@sst.com", username: "superadmin", name: "Super Administrator", role: "SUPER_ADMIN", pwd: "SuperAdmin@123" },
+      { email: "admin@sst.com", username: "admin", name: "Institution Administrator", role: "INSTITUTION_ADMIN", pwd: "Admin@123" },
+      { email: "principal@sst.com", username: "principal", name: "Dr. Arvind Principal", role: "PRINCIPAL", pwd: "Principal@123" },
+      { email: "faculty@sst.com", username: "faculty", name: "Prof. Sunita Sharma", role: "FACULTY", pwd: "Faculty@123" },
+      { email: "student@sst.com", username: "student", name: "Aarav Kumar (Student)", role: "STUDENT", pwd: "Student@123" },
+      { email: "parent@sst.com", username: "parent", name: "Rajesh Kumar (Parent)", role: "PARENT", pwd: "Parent@123" },
+      { email: "accountant@sst.com", username: "accountant", name: "Mahesh Accountant", role: "ACCOUNTANT", pwd: "Accountant@123" },
+      { email: "staff@sst.com", username: "staff", name: "Pooja Staff", role: "STAFF", pwd: "Staff@123" },
+    ];
+
+    const sampleStudent = await one<{ id: string }>("SELECT id FROM students WHERE institution_id=? LIMIT 1", [tenantId]);
+    const sampleParent = await one<{ id: string }>("SELECT id FROM parents WHERE institution_id=? LIMIT 1", [tenantId]);
+
+    for (const du of demoUsers) {
+      let u = await one<{ id: string }>("SELECT id FROM users WHERE lower(email)=?", [du.email.toLowerCase()]);
+      if (!u) {
+        const newId = uuid();
+        await stmt(
+          "INSERT INTO users(id, email, name, created_at, updated_at, created_by, updated_by) VALUES (?, ?, ?, ?, ?, ?, ?)",
+          [newId, du.email, du.name, now(), now(), actorId, actorId],
+        ).run();
+        u = { id: newId };
+      }
+
+      if (du.role === "SUPER_ADMIN") {
+        await stmt(
+          "INSERT OR IGNORE INTO platform_admins(user_id, active, created_at, updated_at, created_by, updated_by) VALUES (?, 1, ?, ?, ?, ?)",
+          [u.id, now(), now(), actorId, actorId],
+        ).run();
+      } else {
+        await stmt(
+          `INSERT INTO memberships(id, institution_id, user_id, role, display_name, active, student_id, parent_id, permissions, created_at, updated_at, created_by, updated_by)
+           VALUES (?, ?, ?, ?, ?, 1, ?, ?, '[]', ?, ?, ?, ?)
+           ON CONFLICT(institution_id, user_id) DO UPDATE SET role=excluded.role, student_id=excluded.student_id, parent_id=excluded.parent_id, active=1`,
+          [
+            uuid(),
+            tenantId,
+            u.id,
+            du.role,
+            du.name,
+            du.role === "STUDENT" ? sampleStudent?.id || null : null,
+            du.role === "PARENT" ? sampleParent?.id || null : null,
+            now(),
+            now(),
+            actorId,
+            actorId,
+          ],
+        ).run();
+      }
+
+      const salt = uuid();
+      const hash = await hashPassword(du.pwd, salt);
+      await stmt(
+        `INSERT INTO user_credentials(user_id, username, password_hash, salt, failed_attempts, active, created_at, updated_at)
+         VALUES (?, ?, ?, ?, 0, 1, ?, ?)
+         ON CONFLICT(user_id) DO UPDATE SET password_hash=excluded.password_hash, salt=excluded.salt, active=1`,
+        [u.id, du.username, hash, salt, now(), now()],
+      ).run();
+    }
+
+    // 6. Student Exams, LMS, Emergency Contacts, History
+    if (sampleStudent && year) {
+      const hasExams = await one("SELECT id FROM student_exams WHERE student_id=? LIMIT 1", [sampleStudent.id]);
+      if (!hasExams) {
+        const examEntries = [
+          { exam: "Mid-Term Examination 2026", sub: "Mathematics", marks: 92, max: 100, gr: "A+" },
+          { exam: "Mid-Term Examination 2026", sub: "Science", marks: 88, max: 100, gr: "A" },
+          { exam: "Mid-Term Examination 2026", sub: "English", marks: 95, max: 100, gr: "A+" },
+          { exam: "Monthly Quiz - October", sub: "Social Studies", marks: 46, max: 50, gr: "A+" },
+        ];
+        for (const ex of examEntries) {
+          await stmt(
+            `INSERT INTO student_exams(id, institution_id, student_id, academic_year_id, exam_name, subject, marks_obtained, max_marks, grade, remarks, created_at, updated_at, created_by, updated_by)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'Excellent understanding', ?, ?, ?, ?)`,
+            [uuid(), tenantId, sampleStudent.id, year.id, ex.exam, ex.sub, ex.marks, ex.max, ex.gr, now(), now(), actorId, actorId],
+          ).run();
+        }
+
+        const lmsEntries = [
+          { course: "Advanced Mathematics (Grade 10)", inst: "Prof. S. Sharma", pct: 75, st: "In Progress" },
+          { course: "Physics: Mechanics & Waves", inst: "Dr. K. Patel", pct: 90, st: "In Progress" },
+          { course: "Computer Science & Python", inst: "Er. R. Joshi", pct: 100, st: "Completed" },
+        ];
+        for (const lms of lmsEntries) {
+          await stmt(
+            `INSERT INTO student_lms_courses(id, institution_id, student_id, course_name, instructor, progress_percent, status, created_at, updated_at, created_by, updated_by)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [uuid(), tenantId, sampleStudent.id, lms.course, lms.inst, lms.pct, lms.st, now(), now(), actorId, actorId],
+          ).run();
+        }
+
+        await stmt(
+          `INSERT INTO student_emergency_contacts(id, institution_id, student_id, name, relationship, phone, address, created_at, updated_at, created_by, updated_by)
+           VALUES (?, ?, ?, 'Mr. Rajesh Kumar', 'Father', '9876543210', '12 Park Avenue, Civil Lines', ?, ?, ?, ?)`,
+          [uuid(), tenantId, sampleStudent.id, now(), now(), actorId, actorId],
+        ).run();
+
+        await stmt(
+          `INSERT INTO student_history(id, institution_id, student_id, action, details, actor_id, actor_name, created_at)
+           VALUES (?, ?, ?, 'Enrolled', '{"note":"Initial academic admission"}', ?, 'System', ?)`,
+          [uuid(), tenantId, sampleStudent.id, actorId, now()],
+        ).run();
+      }
+    }
+  } catch (err) {
+    // Ignore demonstration seed errors to keep primary workflows uninterrupted
+  }
+}
+
+export async function ensureMember2AndMember3Demonstration(tenantId: string, actorId: string) {
+  try {
+    const year = await one<{ id: string }>(
+      "SELECT id FROM academic_years WHERE institution_id=? ORDER BY start_date DESC LIMIT 1",
+      [tenantId],
+    );
+    if (!year) return;
+
+    const hasDept = await one("SELECT id FROM departments WHERE institution_id=? LIMIT 1", [tenantId]);
+    if (!hasDept) {
+      const cseId = "dept-cse-" + tenantId.slice(0, 8);
+      const sciId = "dept-sci-" + tenantId.slice(0, 8);
+      const humId = "dept-hum-" + tenantId.slice(0, 8);
+
+      await stmt(
+        `INSERT OR IGNORE INTO departments(id, institution_id, code, name, description, hod_name, status, created_at, updated_at, created_by, updated_by)
+         VALUES 
+         (?, ?, 'CSE', 'Computer Science & Engineering', 'Core computing, software engineering and algorithms', 'Prof. Sunita Sharma', 'Active', ?, ?, ?, ?),
+         (?, ?, 'SCI', 'Natural Sciences & Mathematics', 'Applied mathematics, physics and computational sciences', 'Dr. Arvind Principal', 'Active', ?, ?, ?, ?),
+         (?, ?, 'HUM', 'Humanities & Social Sciences', 'Languages, professional ethics and communications', 'Dr. Meenakshi Sundaram', 'Active', ?, ?, ?, ?)`,
+        [
+          cseId, tenantId, now(), now(), actorId, actorId,
+          sciId, tenantId, now(), now(), actorId, actorId,
+          humId, tenantId, now(), now(), actorId, actorId,
+        ],
+      ).run();
+
+      const progCse = "prog-cse-" + tenantId.slice(0, 8);
+      const progBsc = "prog-bsc-" + tenantId.slice(0, 8);
+      await stmt(
+        `INSERT OR IGNORE INTO programs(id, institution_id, department_id, code, name, degree_level, duration_years, total_semesters, total_credits, coordinator_name, status, created_at, updated_at, created_by, updated_by)
+         VALUES
+         (?, ?, ?, 'BTECH-CSE', 'B.Tech Computer Science & Engineering', 'Undergraduate', 4, 8, 160, 'Prof. Sunita Sharma', 'Active', ?, ?, ?, ?),
+         (?, ?, ?, 'BSC-SCI', 'B.Sc Integrated Sciences', 'Undergraduate', 3, 6, 120, 'Dr. Arvind Principal', 'Active', ?, ?, ?, ?)`,
+        [
+          progCse, tenantId, cseId, now(), now(), actorId, actorId,
+          progBsc, tenantId, sciId, now(), now(), actorId, actorId,
+        ],
+      ).run();
+
+      const sem1 = "sem-1-" + tenantId.slice(0, 8);
+      const sem2 = "sem-2-" + tenantId.slice(0, 8);
+      await stmt(
+        `INSERT OR IGNORE INTO academic_semesters(id, institution_id, academic_year_id, program_id, name, start_date, end_date, is_current, status, created_at, updated_at, created_by, updated_by)
+         VALUES
+         (?, ?, ?, ?, 'Semester 1 (Autumn 2026)', '2026-07-01', '2026-12-15', 1, 'Active', ?, ?, ?, ?),
+         (?, ?, ?, ?, 'Semester 2 (Spring 2027)', '2027-01-05', '2027-05-31', 0, 'Upcoming', ?, ?, ?, ?)`,
+        [
+          sem1, tenantId, year.id, progCse, now(), now(), actorId, actorId,
+          sem2, tenantId, year.id, progCse, now(), now(), actorId, actorId,
+        ],
+      ).run();
+
+      // Faculty
+      const facultyUser = await one<{ id: string }>("SELECT id FROM users WHERE lower(email)='faculty@sst.com'");
+      const principalUser = await one<{ id: string }>("SELECT id FROM users WHERE lower(email)='principal@sst.com'");
+      const fac1 = "fac-sunita-" + tenantId.slice(0, 8);
+      const fac2 = "fac-arvind-" + tenantId.slice(0, 8);
+      const fac3 = "fac-meenakshi-" + tenantId.slice(0, 8);
+
+      await stmt(
+        `INSERT OR IGNORE INTO faculty(id, institution_id, user_id, employee_id, name, email, phone, department_id, department_name, designation, qualification, specialization, experience_years, joining_date, status, created_at, updated_at, created_by, updated_by)
+         VALUES
+         (?, ?, ?, 'EMP-FAC-001', 'Prof. Sunita Sharma', 'faculty@sst.com', '9876543201', ?, 'Computer Science & Engineering', 'Associate Professor', 'Ph.D in Computer Science', 'Distributed Algorithms & AI', 12, '2020-07-01', 'Active', ?, ?, ?, ?),
+         (?, ?, ?, 'EMP-FAC-002', 'Dr. Arvind Principal', 'principal@sst.com', '9876543202', ?, 'Natural Sciences & Mathematics', 'Professor & Principal', 'Ph.D in Applied Physics', 'Quantum Optics & Nanotech', 20, '2015-06-01', 'Active', ?, ?, ?, ?),
+         (?, ?, NULL, 'EMP-FAC-003', 'Dr. Meenakshi Sundaram', 'meenakshi@sst.com', '9876543203', ?, 'Humanities & Social Sciences', 'Assistant Professor', 'Ph.D in English Literature', 'Technical Communication', 8, '2022-08-01', 'Active', ?, ?, ?, ?)`,
+        [
+          fac1, tenantId, facultyUser?.id || null, cseId, now(), now(), actorId, actorId,
+          fac2, tenantId, principalUser?.id || null, sciId, now(), now(), actorId, actorId,
+          fac3, tenantId, humId, now(), now(), actorId, actorId,
+        ],
+      ).run();
+
+      // Faculty Documents
+      await stmt(
+        `INSERT OR IGNORE INTO faculty_documents(id, institution_id, faculty_id, title, document_type, file_url, created_at, updated_at, created_by, updated_by)
+         VALUES
+         (?, ?, ?, 'Prof_Sunita_Curriculum_Vitae.pdf', 'Resume', 'https://campus.test/docs/fac1-cv.pdf', ?, ?, ?, ?),
+         (?, ?, ?, 'Appointment_Letter_SST.pdf', 'Appointment Letter', 'https://campus.test/docs/fac1-apt.pdf', ?, ?, ?, ?)`,
+        [
+          uuid(), tenantId, fac1, now(), now(), actorId, actorId,
+          uuid(), tenantId, fac1, now(), now(), actorId, actorId,
+        ],
+      ).run();
+
+      // Sample class and section
+      const sampleClass = await one<{ id: string }>("SELECT id FROM classes WHERE institution_id=? ORDER BY sort_order DESC LIMIT 1", [tenantId]);
+      const sampleSection = await one<{ id: string }>("SELECT id FROM sections WHERE institution_id=? LIMIT 1", [tenantId]);
+      const classId = sampleClass?.id || null;
+      const sectionId = sampleSection?.id || null;
+
+      // Subjects
+      const sub1 = "sub-cs101-" + tenantId.slice(0, 8);
+      const sub2 = "sub-cs102-" + tenantId.slice(0, 8);
+      const sub3 = "sub-phy101-" + tenantId.slice(0, 8);
+      const sub4 = "sub-cs101l-" + tenantId.slice(0, 8);
+
+      await stmt(
+        `INSERT OR IGNORE INTO subjects(id, institution_id, department_id, class_id, code, name, type, credits, faculty_id, status, created_at, updated_at, created_by, updated_by)
+         VALUES
+         (?, ?, ?, ?, 'CS101', 'Data Structures & Algorithms', 'Theory', 4, ?, 'Active', ?, ?, ?, ?),
+         (?, ?, ?, ?, 'CS102', 'Database Management Systems', 'Theory', 4, ?, 'Active', ?, ?, ?, ?),
+         (?, ?, ?, ?, 'PHY101', 'Engineering Physics', 'Theory', 3, ?, 'Active', ?, ?, ?, ?),
+         (?, ?, ?, ?, 'CS101L', 'Data Structures Laboratory', 'Practical', 2, ?, 'Active', ?, ?, ?, ?)`,
+        [
+          sub1, tenantId, cseId, classId, fac1, now(), now(), actorId, actorId,
+          sub2, tenantId, cseId, classId, fac1, now(), now(), actorId, actorId,
+          sub3, tenantId, sciId, classId, fac2, now(), now(), actorId, actorId,
+          sub4, tenantId, cseId, classId, fac1, now(), now(), actorId, actorId,
+        ],
+      ).run();
+
+      // Timetable Slots
+      if (classId && sectionId) {
+        const slots = [
+          { day: "Monday", p: 1, start: "09:00", end: "09:55", sub: sub1, fac: fac1, room: "Lab-301" },
+          { day: "Monday", p: 2, start: "10:00", end: "10:55", sub: sub2, fac: fac1, room: "LH-102" },
+          { day: "Monday", p: 3, start: "11:15", end: "12:10", sub: sub3, fac: fac2, room: "LH-105" },
+          { day: "Tuesday", p: 1, start: "09:00", end: "09:55", sub: sub3, fac: fac2, room: "LH-105" },
+          { day: "Tuesday", p: 2, start: "10:00", end: "10:55", sub: sub1, fac: fac1, room: "LH-102" },
+          { day: "Wednesday", p: 1, start: "09:00", end: "09:55", sub: sub4, fac: fac1, room: "Lab-301" },
+          { day: "Wednesday", p: 2, start: "10:00", end: "10:55", sub: sub4, fac: fac1, room: "Lab-301" },
+          { day: "Thursday", p: 1, start: "09:00", end: "09:55", sub: sub1, fac: fac1, room: "LH-102" },
+          { day: "Friday", p: 1, start: "09:00", end: "09:55", sub: sub2, fac: fac1, room: "LH-102" },
+        ];
+        for (const s of slots) {
+          await stmt(
+            `INSERT OR IGNORE INTO timetable_slots(id, institution_id, academic_year_id, class_id, section_id, subject_id, faculty_id, day_of_week, period_number, start_time, end_time, room_number, status, created_at, updated_at, created_by, updated_by)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Published', ?, ?, ?, ?)`,
+            [uuid(), tenantId, year.id, classId, sectionId, s.sub, s.fac, s.day, s.p, s.start, s.end, s.room, now(), now(), actorId, actorId],
+          ).run();
+        }
+      }
+
+      // Student Attendance (Sample student Aarav)
+      const sampleStudent = await one<{ id: string }>("SELECT id FROM students WHERE institution_id=? LIMIT 1", [tenantId]);
+      if (sampleStudent && classId && sectionId) {
+        const attDates = ["2026-10-01", "2026-10-02", "2026-10-03", "2026-10-04", "2026-10-05", "2026-10-06"];
+        for (let idx = 0; idx < attDates.length; idx++) {
+          const st = idx === 2 ? "Late" : idx === 4 ? "Absent" : "Present";
+          await stmt(
+            `INSERT OR IGNORE INTO student_attendance(id, institution_id, academic_year_id, class_id, section_id, student_id, date, period_number, status, remarks, recorded_by, created_at, updated_at, created_by, updated_by)
+             VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, '', 'Prof. Sunita Sharma', ?, ?, ?, ?)`,
+            [uuid(), tenantId, year.id, classId, sectionId, sampleStudent.id, attDates[idx], st, now(), now(), actorId, actorId],
+          ).run();
+        }
+      }
+
+      // Faculty Attendance & Leaves
+      await stmt(
+        `INSERT OR IGNORE INTO faculty_attendance(id, institution_id, faculty_id, date, check_in, check_out, status, notes, created_at, updated_at, created_by, updated_by)
+         VALUES
+         (?, ?, ?, '2026-10-06', '08:45', '16:30', 'Present', 'On time', ?, ?, ?, ?),
+         (?, ?, ?, '2026-10-07', '08:52', NULL, 'Present', 'Morning session ongoing', ?, ?, ?, ?)`,
+        [
+          uuid(), tenantId, fac1, now(), now(), actorId, actorId,
+          uuid(), tenantId, fac1, now(), now(), actorId, actorId,
+        ],
+      ).run();
+
+      await stmt(
+        `INSERT OR IGNORE INTO faculty_leaves(id, institution_id, faculty_id, leave_type, start_date, end_date, days_count, reason, substitute_faculty_id, substitute_name, status, created_at, updated_at, created_by, updated_by)
+         VALUES
+         (?, ?, ?, 'Casual', '2026-10-15', '2026-10-16', 2, 'Attending IEEE Academic Symposium', ?, 'Dr. Arvind Principal', 'Pending', ?, ?, ?, ?),
+         (?, ?, ?, 'Sick', '2026-09-12', '2026-09-13', 2, 'Seasonal fever and medical rest', NULL, '', 'Approved', ?, ?, ?, ?)`,
+        [
+          uuid(), tenantId, fac1, fac2, now(), now(), actorId, actorId,
+          uuid(), tenantId, fac1, now(), now(), actorId, actorId,
+        ],
+      ).run();
+
+      // LMS Course 1: CS101
+      const course1 = "lms-cs101-" + tenantId.slice(0, 8);
+      await stmt(
+        `INSERT OR IGNORE INTO lms_courses(id, institution_id, code, title, description, thumbnail_url, department_id, subject_id, faculty_id, faculty_name, class_id, section_id, level, status, created_at, updated_at, created_by, updated_by)
+         VALUES (?, ?, 'CS101', 'Data Structures & Algorithms in Practice', 'Master linear and non-linear data structures with practical coding exercises in TypeScript & C++.', 'https://images.unsplash.com/photo-1517694712202-14dd9538aa97?w=600', ?, ?, ?, 'Prof. Sunita Sharma', ?, ?, 'Intermediate', 'Published', ?, ?, ?, ?)`,
+        [course1, tenantId, cseId, sub1, fac1, classId, sectionId, now(), now(), actorId, actorId],
+      ).run();
+
+      // LMS Modules & Lessons
+      const mod1 = "mod-linear-" + tenantId.slice(0, 8);
+      const mod2 = "mod-trees-" + tenantId.slice(0, 8);
+      await stmt(
+        `INSERT OR IGNORE INTO lms_modules(id, institution_id, course_id, title, description, sort_order, status, created_at, updated_at, created_by, updated_by)
+         VALUES
+         (?, ?, ?, 'Module 1: Linear Data Structures', 'Arrays, Dynamic Memory, and Linked Lists', 1, 'Published', ?, ?, ?, ?),
+         (?, ?, ?, 'Module 2: Trees and Graphs', 'Binary Trees, Search Trees and Graph Traversals', 2, 'Published', ?, ?, ?, ?)`,
+        [
+          mod1, tenantId, course1, now(), now(), actorId, actorId,
+          mod2, tenantId, course1, now(), now(), actorId, actorId,
+        ],
+      ).run();
+
+      const les1 = "les-dynarray-" + tenantId.slice(0, 8);
+      const les2 = "les-linkedlist-" + tenantId.slice(0, 8);
+      const les3 = "les-bst-" + tenantId.slice(0, 8);
+      await stmt(
+        `INSERT OR IGNORE INTO lms_lessons(id, institution_id, course_id, module_id, title, content, duration_minutes, video_url, sort_order, status, created_at, updated_at, created_by, updated_by)
+         VALUES
+         (?, ?, ?, ?, 'Lesson 1: Dynamic Arrays & Memory Allocations', 'Comprehensive exploration of amortized analysis, capacity doubling and cache locality.', 25, 'https://www.youtube.com/watch?v=sample1', 1, 'Published', ?, ?, ?, ?),
+         (?, ?, ?, ?, 'Lesson 2: Singly and Doubly Linked Lists', 'Pointer manipulation, sentinel nodes, and reversing linked lists iteratively and recursively.', 30, 'https://www.youtube.com/watch?v=sample2', 2, 'Published', ?, ?, ?, ?),
+         (?, ?, ?, ?, 'Lesson 3: Binary Search Tree (BST) Operations', 'Node insertions, deletions with 2 children, in-order traversal and balanced property.', 35, 'https://www.youtube.com/watch?v=sample3', 1, 'Published', ?, ?, ?, ?)`,
+        [
+          les1, tenantId, course1, mod1, now(), now(), actorId, actorId,
+          les2, tenantId, course1, mod1, now(), now(), actorId, actorId,
+          les3, tenantId, course1, mod2, now(), now(), actorId, actorId,
+        ],
+      ).run();
+
+      // LMS Resources
+      await stmt(
+        `INSERT OR IGNORE INTO lms_resources(id, institution_id, course_id, lesson_id, title, type, file_url, file_size_bytes, is_downloadable, created_at, updated_at, created_by, updated_by)
+         VALUES
+         (?, ?, ?, ?, 'CS101 Lecture Notes - Chapter 1.pdf', 'PDF', 'https://campus.test/lms/notes-ch1.pdf', 2048576, 1, ?, ?, ?, ?),
+         (?, ?, ?, ?, 'Dynamic Arrays Source Code Repository', 'Link', 'https://github.com/example/ds-typescript', 0, 1, ?, ?, ?, ?),
+         (?, ?, ?, ?, 'Practice Problem Set 1.docx', 'Word', 'https://campus.test/lms/problem-set-1.docx', 512000, 1, ?, ?, ?, ?)`,
+        [
+          uuid(), tenantId, course1, les1, now(), now(), actorId, actorId,
+          uuid(), tenantId, course1, les1, now(), now(), actorId, actorId,
+          uuid(), tenantId, course1, les2, now(), now(), actorId, actorId,
+        ],
+      ).run();
+
+      // LMS Student Enrollment
+      if (sampleStudent) {
+        await stmt(
+          `INSERT OR IGNORE INTO lms_enrollments(id, institution_id, course_id, student_id, enrolled_date, progress_percent, completed_lessons, last_accessed_lesson_id, last_accessed_at, status, created_at, updated_at, created_by, updated_by)
+           VALUES (?, ?, ?, ?, '2026-09-01', 67, ?, ?, ?, 'Active', ?, ?, ?, ?)`,
+          [
+            uuid(),
+            tenantId,
+            course1,
+            sampleStudent.id,
+            JSON.stringify([les1, les2]),
+            les2,
+            now(),
+            now(),
+            now(),
+            actorId,
+            actorId,
+          ],
+        ).run();
+      }
+
+      // LMS Assignments & Submissions
+      const asgn1 = "asgn-bst-" + tenantId.slice(0, 8);
+      await stmt(
+        `INSERT OR IGNORE INTO lms_assignments(id, institution_id, course_id, subject_id, class_id, section_id, faculty_id, title, instructions, attachment_url, max_marks, due_date, allow_late, status, created_at, updated_at, created_by, updated_by)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 'Assignment 1: Balanced BST & AVL Rotation Engine', 'Implement self-balancing rotations (LL, RR, LR, RL) for a Binary Search Tree with unit tests in TypeScript.', 'https://campus.test/lms/asgn1-starter.zip', 100, '2026-10-31', 1, 'Published', ?, ?, ?, ?)`,
+        [asgn1, tenantId, course1, sub1, classId, sectionId, fac1, now(), now(), actorId, actorId],
+      ).run();
+
+      if (sampleStudent) {
+        await stmt(
+          `INSERT OR IGNORE INTO lms_submissions(id, institution_id, assignment_id, student_id, student_name, content, attachment_url, submitted_at, status, marks_obtained, feedback, graded_by, graded_at, created_at, updated_at, created_by, updated_by)
+           VALUES (?, ?, ?, ?, 'Aarav Kumar (Student)', 'Implemented AVL rotations, height balancing, and in-order validation tests.', 'https://campus.test/lms/aarav-bst-submission.zip', '2026-10-04T14:30:00.000Z', 'Graded', 94, 'Outstanding code organization, clear comments and 100% test coverage passing.', 'Prof. Sunita Sharma', '2026-10-05T10:00:00.000Z', ?, ?, ?, ?)`,
+          [uuid(), tenantId, asgn1, sampleStudent.id, now(), now(), actorId, actorId],
+        ).run();
+      }
+
+      // LMS Quizzes & Questions & Attempts
+      const quiz1 = "quiz-linear-" + tenantId.slice(0, 8);
+      await stmt(
+        `INSERT OR IGNORE INTO lms_quizzes(id, institution_id, course_id, faculty_id, title, description, time_limit_minutes, total_marks, passing_marks, due_date, status, created_at, updated_at, created_by, updated_by)
+         VALUES (?, ?, ?, ?, 'CS101 Mid-Semester Quiz: Linear Data Structures', '30 minutes assessment on arrays, amortized cost and linked lists.', 30, 30, 15, '2026-10-25', 'Published', ?, ?, ?, ?)`,
+        [quiz1, tenantId, course1, fac1, now(), now(), actorId, actorId],
+      ).run();
+
+      const q1 = "q1-" + tenantId.slice(0, 8);
+      const q2 = "q2-" + tenantId.slice(0, 8);
+      const q3 = "q3-" + tenantId.slice(0, 8);
+      await stmt(
+        `INSERT OR IGNORE INTO lms_quiz_questions(id, institution_id, quiz_id, question, type, options, correct_answer, explanation, marks, sort_order, created_at, updated_at, created_by, updated_by)
+         VALUES
+         (?, ?, ?, 'What is the amortized time complexity of inserting an element into a dynamic array (vector)?', 'MCQ', '["O(1)", "O(n)", "O(log n)", "O(n^2)"]', 'O(1)', 'Although resizing takes O(n), it occurs rarely enough that the average time per append is constant O(1).', 10, 1, ?, ?, ?, ?),
+         (?, ?, ?, 'Which data structure allows O(1) insertion at both ends without shifting elements?', 'MCQ', '["Array", "Singly Linked List", "Doubly Linked List / Deque", "Stack"]', 'Doubly Linked List / Deque', 'With head and tail pointers, a deque allows O(1) push and pop on both ends.', 10, 2, ?, ?, ?, ?),
+         (?, ?, ?, 'In a singly linked list, reversing the list in-place requires O(n) extra auxiliary space.', 'MCQ', '["True", "False"]', 'False', 'A linked list can be reversed in O(1) auxiliary space using three pointers (prev, current, next).', 10, 3, ?, ?, ?, ?)`,
+        [
+          q1, tenantId, quiz1, now(), now(), actorId, actorId,
+          q2, tenantId, quiz1, now(), now(), actorId, actorId,
+          q3, tenantId, quiz1, now(), now(), actorId, actorId,
+        ],
+      ).run();
+
+      if (sampleStudent) {
+        await stmt(
+          `INSERT OR IGNORE INTO lms_quiz_attempts(id, institution_id, quiz_id, student_id, student_name, answers, score, max_score, percentage, passed, time_spent_seconds, completed_at, created_at, updated_at, created_by, updated_by)
+           VALUES (?, ?, ?, ?, 'Aarav Kumar (Student)', ?, 30, 30, 100, 1, 740, '2026-10-05T11:25:00.000Z', ?, ?, ?, ?)`,
+          [
+            uuid(),
+            tenantId,
+            quiz1,
+            sampleStudent.id,
+            JSON.stringify({ [q1]: "O(1)", [q2]: "Doubly Linked List / Deque", [q3]: "False" }),
+            now(),
+            now(),
+            actorId,
+            actorId,
+          ],
+        ).run();
+      }
+    }
+  } catch (err) {
+    console.warn("Member 2 & 3 demonstration seed notice:", err);
+  }
+}
+
+
