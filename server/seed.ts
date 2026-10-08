@@ -1284,4 +1284,1025 @@ export async function ensureMember2AndMember3Demonstration(tenantId: string, act
   }
 }
 
+// ---------------------------------------------------------------------------
+// Student Portal Sections 13-24 Seed Demonstration (Member 2 - Part 2)
+// Strictly Idempotent: Can be executed multiple times without duplicate records.
+// Populates 2 Demo Students in primary institution (Student A, Student B)
+// and 1 Demo Student in secondary cross-tenant institution (Student C).
+// ---------------------------------------------------------------------------
+
+export async function ensureStudentPortalPart2Demonstration(
+  tenantIdIn?: string,
+  actorIdIn?: string,
+  customDb?: any,
+) {
+  const dbRun = async (sql: string, params: unknown[] = []) => {
+    if (customDb) {
+      return await customDb.prepare(sql).bind(...params).run();
+    }
+    return await run(sql, params);
+  };
+
+  const dbOne = async <T = Record<string, any>>(
+    sql: string,
+    params: unknown[] = [],
+  ): Promise<T | null> => {
+    if (customDb) {
+      return (await customDb.prepare(sql).bind(...params).first()) as T | null;
+    }
+    return await one<T>(sql, params);
+  };
+
+  const actorId = actorIdIn || "seed-actor-m2";
+  let tenant1Id = tenantIdIn;
+  if (!tenant1Id) {
+    const mainInst = await dbOne<{ id: string }>(
+      "SELECT id FROM institutions ORDER BY created_at LIMIT 1",
+    );
+    tenant1Id = mainInst?.id || "csa-main-campus";
+  }
+
+  // 1. Ensure Institution 1 (Main Tenant)
+  await dbRun(
+    `INSERT OR IGNORE INTO institutions(id, name, slug, address, email, phone, subscription, status, settings, created_at, updated_at, created_by, updated_by)
+     VALUES (?, 'Chaitanya Shree Academy', ?, '24 Vidyanagar, Bengaluru', 'accounts@csa.test', '080-2345-6789', 'Professional', 'Active', '{}', ?, ?, ?, ?)`,
+    [tenant1Id, tenant1Id, now(), now(), actorId, actorId],
+  );
+
+  let year1 = await dbOne<{ id: string }>(
+    "SELECT id FROM academic_years WHERE institution_id=? AND status='Active' LIMIT 1",
+    [tenant1Id],
+  );
+  if (!year1) {
+    const yid = `ay-2026-${tenant1Id.slice(0, 8)}`;
+    await dbRun(
+      `INSERT OR IGNORE INTO academic_years(id, institution_id, name, start_date, end_date, status, created_at, updated_at, created_by, updated_by)
+       VALUES (?, ?, '2026–27', '2026-06-01', '2027-05-31', 'Active', ?, ?, ?, ?)`,
+      [yid, tenant1Id, now(), now(), actorId, actorId],
+    );
+    year1 = { id: yid };
+  }
+
+  let camp1 = await dbOne<{ id: string }>(
+    "SELECT id FROM campuses WHERE institution_id=? LIMIT 1",
+    [tenant1Id],
+  );
+  if (!camp1) {
+    const cid = `camp-main-${tenant1Id.slice(0, 8)}`;
+    await dbRun(
+      `INSERT OR IGNORE INTO campuses(id, institution_id, name, address, created_at, updated_at, created_by, updated_by)
+       VALUES (?, ?, 'Main Campus', 'Vidyanagar, Bengaluru', ?, ?, ?, ?)`,
+      [cid, tenant1Id, now(), now(), actorId, actorId],
+    );
+    camp1 = { id: cid };
+  }
+
+  let cls1 = await dbOne<{ id: string }>(
+    "SELECT id FROM classes WHERE institution_id=? LIMIT 1",
+    [tenant1Id],
+  );
+  if (!cls1) {
+    const clsid = `cls-10-${tenant1Id.slice(0, 8)}`;
+    await dbRun(
+      `INSERT OR IGNORE INTO classes(id, institution_id, name, level, sort_order, active, created_at, updated_at, created_by, updated_by)
+       VALUES (?, ?, 'Class 10', 'School', 10, 1, ?, ?, ?, ?)`,
+      [clsid, tenant1Id, now(), now(), actorId, actorId],
+    );
+    cls1 = { id: clsid };
+  }
+
+  let sec1 = await dbOne<{ id: string }>(
+    "SELECT id FROM sections WHERE institution_id=? LIMIT 1",
+    [tenant1Id],
+  );
+  if (!sec1) {
+    const secid = `sec-a-${tenant1Id.slice(0, 8)}`;
+    await dbRun(
+      `INSERT OR IGNORE INTO sections(id, institution_id, academic_year_id, class_id, campus_id, name, capacity, created_at, updated_at, created_by, updated_by)
+       VALUES (?, ?, ?, ?, ?, 'Section A', 40, ?, ?, ?, ?)`,
+      [secid, tenant1Id, year1.id, cls1.id, camp1.id, now(), now(), actorId, actorId],
+    );
+    sec1 = { id: secid };
+  }
+
+  let dept1 = await dbOne<{ id: string }>(
+    "SELECT id FROM departments WHERE institution_id=? LIMIT 1",
+    [tenant1Id],
+  );
+  if (!dept1) {
+    const did = `dept-cse-${tenant1Id.slice(0, 8)}`;
+    await dbRun(
+      `INSERT OR IGNORE INTO departments(id, institution_id, code, name, description, hod_name, status, created_at, updated_at, created_by, updated_by)
+       VALUES (?, ?, 'CSE', 'Computer Science & Engineering', 'Core computing and algorithms', 'Prof. Sunita Sharma', 'Active', ?, ?, ?, ?)`,
+      [did, tenant1Id, now(), now(), actorId, actorId],
+    );
+    dept1 = { id: did };
+  }
+
+  let prog1 = await dbOne<{ id: string }>(
+    "SELECT id FROM programs WHERE institution_id=? LIMIT 1",
+    [tenant1Id],
+  );
+  if (!prog1) {
+    const pid = `prog-btech-${tenant1Id.slice(0, 8)}`;
+    await dbRun(
+      `INSERT OR IGNORE INTO programs(id, institution_id, department_id, code, name, degree_level, duration_years, total_semesters, status, created_at, updated_at, created_by, updated_by)
+       VALUES (?, ?, ?, 'BTECH-CSE', 'B.Tech Computer Science & Engineering', 'Undergraduate', 4, 8, 'Active', ?, ?, ?, ?)`,
+      [pid, tenant1Id, dept1.id, now(), now(), actorId, actorId],
+    );
+    prog1 = { id: pid };
+  }
+
+  // 2. Ensure Institution 2 (Cross-Tenant)
+  const tenant2Id = "inst-cross-tenant-sst";
+  await dbRun(
+    `INSERT OR IGNORE INTO institutions(id, name, slug, address, email, phone, subscription, status, settings, created_at, updated_at, created_by, updated_by)
+     VALUES (?, 'St. Xavier International Academy', 'st-xavier-intl', '45 Park Street, Kolkata', 'accounts@stxavier.test', '033-2289-1000', 'Professional', 'Active', '{}', ?, ?, ?, ?)`,
+    [tenant2Id, now(), now(), actorId, actorId],
+  );
+
+  let year2 = await dbOne<{ id: string }>(
+    "SELECT id FROM academic_years WHERE institution_id=? AND status='Active' LIMIT 1",
+    [tenant2Id],
+  );
+  if (!year2) {
+    const yid = `ay-2026-cross`;
+    await dbRun(
+      `INSERT OR IGNORE INTO academic_years(id, institution_id, name, start_date, end_date, status, created_at, updated_at, created_by, updated_by)
+       VALUES (?, ?, '2026–27', '2026-06-01', '2027-05-31', 'Active', ?, ?, ?, ?)`,
+      [yid, tenant2Id, now(), now(), actorId, actorId],
+    );
+    year2 = { id: yid };
+  }
+
+  let camp2 = await dbOne<{ id: string }>(
+    "SELECT id FROM campuses WHERE institution_id=? LIMIT 1",
+    [tenant2Id],
+  );
+  if (!camp2) {
+    const cid = `camp-cross-main`;
+    await dbRun(
+      `INSERT OR IGNORE INTO campuses(id, institution_id, name, address, created_at, updated_at, created_by, updated_by)
+       VALUES (?, ?, 'Main City Campus', '45 Park Street, Kolkata', ?, ?, ?, ?)`,
+      [cid, tenant2Id, now(), now(), actorId, actorId],
+    );
+    camp2 = { id: cid };
+  }
+
+  let cls2 = await dbOne<{ id: string }>(
+    "SELECT id FROM classes WHERE institution_id=? LIMIT 1",
+    [tenant2Id],
+  );
+  if (!cls2) {
+    const clsid = `cls-10-cross`;
+    await dbRun(
+      `INSERT OR IGNORE INTO classes(id, institution_id, name, level, sort_order, active, created_at, updated_at, created_by, updated_by)
+       VALUES (?, ?, 'Class 10', 'School', 10, 1, ?, ?, ?, ?)`,
+      [clsid, tenant2Id, now(), now(), actorId, actorId],
+    );
+    cls2 = { id: clsid };
+  }
+
+  let sec2 = await dbOne<{ id: string }>(
+    "SELECT id FROM sections WHERE institution_id=? LIMIT 1",
+    [tenant2Id],
+  );
+  if (!sec2) {
+    const secid = `sec-a-cross`;
+    await dbRun(
+      `INSERT OR IGNORE INTO sections(id, institution_id, academic_year_id, class_id, campus_id, name, capacity, created_at, updated_at, created_by, updated_by)
+       VALUES (?, ?, ?, ?, ?, 'Section A', 40, ?, ?, ?, ?)`,
+      [secid, tenant2Id, year2.id, cls2.id, camp2.id, now(), now(), actorId, actorId],
+    );
+    sec2 = { id: secid };
+  }
+
+  let dept2 = await dbOne<{ id: string }>(
+    "SELECT id FROM departments WHERE institution_id=? LIMIT 1",
+    [tenant2Id],
+  );
+  if (!dept2) {
+    const did = `dept-cse-cross`;
+    await dbRun(
+      `INSERT OR IGNORE INTO departments(id, institution_id, code, name, description, hod_name, status, created_at, updated_at, created_by, updated_by)
+       VALUES (?, ?, 'CSE-X', 'Computer Science & Engineering', 'Computing sciences department', 'Dr. Alok Ghosh', 'Active', ?, ?, ?, ?)`,
+      [did, tenant2Id, now(), now(), actorId, actorId],
+    );
+    dept2 = { id: did };
+  }
+
+  let prog2 = await dbOne<{ id: string }>(
+    "SELECT id FROM programs WHERE institution_id=? LIMIT 1",
+    [tenant2Id],
+  );
+  if (!prog2) {
+    const pid = `prog-btech-cross`;
+    await dbRun(
+      `INSERT OR IGNORE INTO programs(id, institution_id, department_id, code, name, degree_level, duration_years, total_semesters, status, created_at, updated_at, created_by, updated_by)
+       VALUES (?, ?, ?, 'BTECH-X', 'B.Tech Computer Science & Engineering', 'Undergraduate', 4, 8, 'Active', ?, ?, ?, ?)`,
+      [pid, tenant2Id, dept2.id, now(), now(), actorId, actorId],
+    );
+    prog2 = { id: pid };
+  }
+
+  // 3. Define the 3 Demo Students
+  // Student A in Tenant 1
+  const studentAId = `stu-demo-a-${tenant1Id.slice(0, 8)}`;
+  await dbRun(
+    `INSERT OR IGNORE INTO students(id, institution_id, admission_number, name, dob, gender, admission_date, status, created_at, updated_at, created_by, updated_by)
+     VALUES (?, ?, 'CSA/2026/0001', 'Aarav Kumar (Student A)', '2010-05-15', 'Male', '2026-06-01', 'Active', ?, ?, ?, ?)`,
+    [studentAId, tenant1Id, now(), now(), actorId, actorId],
+  );
+
+  let userA = await dbOne<{ id: string }>(
+    "SELECT id FROM users WHERE lower(email)='student@sst.com'",
+  );
+  if (!userA) {
+    const uaid = `user-stu-a-${tenant1Id.slice(0, 8)}`;
+    await dbRun(
+      `INSERT OR IGNORE INTO users(id, email, name, created_at, updated_at, created_by, updated_by)
+       VALUES (?, 'student@sst.com', 'Aarav Kumar (Student A)', ?, ?, ?, ?)`,
+      [uaid, now(), now(), actorId, actorId],
+    );
+    userA = { id: uaid };
+  }
+
+  await dbRun(
+    `INSERT INTO memberships(id, institution_id, user_id, role, display_name, active, student_id, permissions, created_at, updated_at, created_by, updated_by)
+     VALUES (?, ?, ?, 'STUDENT', 'Aarav Kumar (Student A)', 1, ?, '[]', ?, ?, ?, ?)
+     ON CONFLICT(institution_id, user_id) DO UPDATE SET student_id=excluded.student_id, role='STUDENT', active=1`,
+    [`mem-stu-a-${tenant1Id.slice(0, 8)}`, tenant1Id, userA.id, studentAId, now(), now(), actorId, actorId],
+  );
+
+  await dbRun(
+    `INSERT OR IGNORE INTO enrollments(id, institution_id, student_id, academic_year_id, section_id, roll_number, clearance, created_at, updated_at, created_by, updated_by)
+     VALUES (?, ?, ?, ?, ?, '1', 'Approved', ?, ?, ?, ?)`,
+    [`enr-stu-a-${tenant1Id.slice(0, 8)}`, tenant1Id, studentAId, year1.id, sec1.id, now(), now(), actorId, actorId],
+  );
+
+  // Student B in Tenant 1
+  const studentBId = `stu-demo-b-${tenant1Id.slice(0, 8)}`;
+  await dbRun(
+    `INSERT OR IGNORE INTO students(id, institution_id, admission_number, name, dob, gender, admission_date, status, created_at, updated_at, created_by, updated_by)
+     VALUES (?, ?, 'CSA/2026/0002', 'Diya Sharma (Student B)', '2010-08-20', 'Female', '2026-06-01', 'Active', ?, ?, ?, ?)`,
+    [studentBId, tenant1Id, now(), now(), actorId, actorId],
+  );
+
+  let userB = await dbOne<{ id: string }>(
+    "SELECT id FROM users WHERE lower(email)='student.b@sst.com'",
+  );
+  if (!userB) {
+    const ubid = `user-stu-b-${tenant1Id.slice(0, 8)}`;
+    await dbRun(
+      `INSERT OR IGNORE INTO users(id, email, name, created_at, updated_at, created_by, updated_by)
+       VALUES (?, 'student.b@sst.com', 'Diya Sharma (Student B)', ?, ?, ?, ?)`,
+      [ubid, now(), now(), actorId, actorId],
+    );
+    userB = { id: ubid };
+  }
+
+  await dbRun(
+    `INSERT INTO memberships(id, institution_id, user_id, role, display_name, active, student_id, permissions, created_at, updated_at, created_by, updated_by)
+     VALUES (?, ?, ?, 'STUDENT', 'Diya Sharma (Student B)', 1, ?, '[]', ?, ?, ?, ?)
+     ON CONFLICT(institution_id, user_id) DO UPDATE SET student_id=excluded.student_id, role='STUDENT', active=1`,
+    [`mem-stu-b-${tenant1Id.slice(0, 8)}`, tenant1Id, userB.id, studentBId, now(), now(), actorId, actorId],
+  );
+
+  await dbRun(
+    `INSERT OR IGNORE INTO enrollments(id, institution_id, student_id, academic_year_id, section_id, roll_number, clearance, created_at, updated_at, created_by, updated_by)
+     VALUES (?, ?, ?, ?, ?, '2', 'Approved', ?, ?, ?, ?)`,
+    [`enr-stu-b-${tenant1Id.slice(0, 8)}`, tenant1Id, studentBId, year1.id, sec1.id, now(), now(), actorId, actorId],
+  );
+
+  // Student C in Tenant 2 (Cross-Tenant)
+  const studentCId = `stu-demo-c-cross`;
+  await dbRun(
+    `INSERT OR IGNORE INTO students(id, institution_id, admission_number, name, dob, gender, admission_date, status, created_at, updated_at, created_by, updated_by)
+     VALUES (?, ?, 'SXI/2026/0003', 'Rohan Varma (Student C - Cross Tenant)', '2010-03-12', 'Male', '2026-06-01', 'Active', ?, ?, ?, ?)`,
+    [studentCId, tenant2Id, now(), now(), actorId, actorId],
+  );
+
+  let userC = await dbOne<{ id: string }>(
+    "SELECT id FROM users WHERE lower(email)='student.c@sst.com'",
+  );
+  if (!userC) {
+    const ucid = `user-stu-c-cross`;
+    await dbRun(
+      `INSERT OR IGNORE INTO users(id, email, name, created_at, updated_at, created_by, updated_by)
+       VALUES (?, 'student.c@sst.com', 'Rohan Varma (Student C - Cross Tenant)', ?, ?, ?, ?)`,
+      [ucid, now(), now(), actorId, actorId],
+    );
+    userC = { id: ucid };
+  }
+
+  await dbRun(
+    `INSERT INTO memberships(id, institution_id, user_id, role, display_name, active, student_id, permissions, created_at, updated_at, created_by, updated_by)
+     VALUES (?, ?, ?, 'STUDENT', 'Rohan Varma (Student C - Cross Tenant)', 1, ?, '[]', ?, ?, ?, ?)
+     ON CONFLICT(institution_id, user_id) DO UPDATE SET student_id=excluded.student_id, role='STUDENT', active=1`,
+    [`mem-stu-c-cross`, tenant2Id, userC.id, studentCId, now(), now(), actorId, actorId],
+  );
+
+  await dbRun(
+    `INSERT OR IGNORE INTO enrollments(id, institution_id, student_id, academic_year_id, section_id, roll_number, clearance, created_at, updated_at, created_by, updated_by)
+     VALUES (?, ?, ?, ?, ?, '1', 'Approved', ?, ?, ?, ?)`,
+    [`enr-stu-c-cross`, tenant2Id, studentCId, year2.id, sec2.id, now(), now(), actorId, actorId],
+  );
+
+  const demoStudents = [
+    {
+      id: studentAId,
+      name: "Aarav Kumar (Student A)",
+      instId: tenant1Id,
+      yearId: year1.id,
+      classId: cls1.id,
+      sectionId: sec1.id,
+      deptId: dept1.id,
+      progId: prog1.id,
+      prefix: "stuA",
+    },
+    {
+      id: studentBId,
+      name: "Diya Sharma (Student B)",
+      instId: tenant1Id,
+      yearId: year1.id,
+      classId: cls1.id,
+      sectionId: sec1.id,
+      deptId: dept1.id,
+      progId: prog1.id,
+      prefix: "stuB",
+    },
+    {
+      id: studentCId,
+      name: "Rohan Varma (Student C - Cross Tenant)",
+      instId: tenant2Id,
+      yearId: year2.id,
+      classId: cls2.id,
+      sectionId: sec2.id,
+      deptId: dept2.id,
+      progId: prog2.id,
+      prefix: "stuC",
+    },
+  ];
+
+  // 4. Seed Data per Student
+  for (const s of demoStudents) {
+    const instId = s.instId;
+    const yearId = s.yearId;
+    const stuId = s.id;
+    const pfx = `${s.prefix}-${instId.slice(0, 6)}`;
+
+    // A. INVOICES, INSTALLMENTS, PAYMENTS, RECEIPTS
+    const existingInvs = await dbOne<{ id: string }>(
+      "SELECT id FROM invoices WHERE institution_id=? AND student_id=? LIMIT 1",
+      [instId, stuId],
+    );
+
+    if (!existingInvs) {
+      // Find or create fee component
+      let cmp = await dbOne<{ id: string }>(
+        "SELECT id FROM fee_components WHERE institution_id=? ORDER BY created_at LIMIT 1",
+        [instId],
+      );
+      if (!cmp) {
+        const cmpId = `comp-tut-${pfx}`;
+        await dbRun(
+          `INSERT OR IGNORE INTO fee_components(id, institution_id, name, category, active, sort_order, created_at, updated_at, created_by, updated_by)
+           VALUES (?, ?, 'Tuition Fee', 'Academic', 1, 1, ?, ?, ?, ?)`,
+          [cmpId, instId, now(), now(), actorId, actorId],
+        );
+        cmp = { id: cmpId };
+      }
+
+      // Fee structures for this student's invoices
+      const str1 = `str-term1-${pfx}`;
+      const str2 = `str-term2-${pfx}`;
+      const str3 = `str-term3-${pfx}`;
+
+      await dbRun(
+        `INSERT OR IGNORE INTO fee_structures(id, institution_id, academic_year_id, class_id, name, frequency, schedule, status, created_at, updated_at, created_by, updated_by)
+         VALUES (?, ?, ?, ?, 'Term 1 Fee Structure', 'Quarterly', '[]', 'Active', ?, ?, ?, ?),
+                (?, ?, ?, ?, 'Term 2 Fee Structure', 'Quarterly', '[]', 'Active', ?, ?, ?, ?),
+                (?, ?, ?, ?, 'Term 3 Composite Fee Structure', 'Quarterly', '[]', 'Active', ?, ?, ?, ?)`,
+        [
+          str1, instId, yearId, s.classId, now(), now(), actorId, actorId,
+          str2, instId, yearId, s.classId, now(), now(), actorId, actorId,
+          str3, instId, yearId, s.classId, now(), now(), actorId, actorId,
+        ],
+      );
+
+      await dbRun(
+        `INSERT OR IGNORE INTO fee_structure_items(id, institution_id, structure_id, component_id, amount_paise)
+         VALUES (?, ?, ?, ?, 2000000),
+                (?, ?, ?, ?, 2500000),
+                (?, ?, ?, ?, 4500000)`,
+        [
+          `fsi-1-${pfx}`, instId, str1, cmp.id,
+          `fsi-2-${pfx}`, instId, str2, cmp.id,
+          `fsi-3-${pfx}`, instId, str3, cmp.id,
+        ],
+      );
+
+      // 1. INVOICE 1: PAID (₹20,000 / 2,000,000 paise)
+      const asg1 = `asg-1-${pfx}`;
+      const inv1 = `inv-paid-${pfx}`;
+      const inst1 = `inst-paid-${pfx}`;
+      const pay1 = `pay-paid-${pfx}`;
+      const rec1 = `rec-paid-${pfx}`;
+
+      await dbRun(
+        `INSERT INTO student_fee_assignments(id, institution_id, student_id, academic_year_id, structure_id, discount_paise, scholarship_paise, reason, created_at, updated_at, created_by, updated_by)
+         VALUES (?, ?, ?, ?, ?, 0, 0, 'Term 1 Standard Enrollment', ?, ?, ?, ?)`,
+        [asg1, instId, stuId, yearId, str1, now(), now(), actorId, actorId],
+      );
+      await dbRun(
+        `INSERT INTO invoices(id, institution_id, student_id, academic_year_id, assignment_id, gross_paise, discount_paise, scholarship_paise, net_paise, issued_date, due_date, created_at, updated_at, created_by, updated_by)
+         VALUES (?, ?, ?, ?, ?, 2000000, 0, 0, 2000000, '2026-06-01', '2026-06-30', ?, ?, ?, ?)`,
+        [inv1, instId, stuId, yearId, asg1, now(), now(), actorId, actorId],
+      );
+      await dbRun(
+        `INSERT INTO invoice_items(id, institution_id, invoice_id, component_id, name, amount_paise)
+         VALUES (?, ?, ?, ?, 'Tuition Fee - Term 1', 2000000)`,
+        [`ii-1-${pfx}`, instId, inv1, cmp.id],
+      );
+      await dbRun(
+        `INSERT INTO installments(id, institution_id, invoice_id, student_id, academic_year_id, title, amount_paise, due_date, sort_order, created_at, updated_at, created_by, updated_by)
+         VALUES (?, ?, ?, ?, ?, 'Term 1 Installment', 2000000, '2026-06-30', 1, ?, ?, ?, ?)`,
+        [inst1, instId, inv1, stuId, yearId, now(), now(), actorId, actorId],
+      );
+      await dbRun(
+        `INSERT INTO ledger_entries(id, institution_id, student_id, academic_year_id, invoice_id, kind, description, debit_paise, credit_paise, entry_date, created_at, updated_at, created_by, updated_by)
+         VALUES (?, ?, ?, ?, ?, 'Fee', 'Term 1 Tuition Fee', 2000000, 0, '2026-06-01', ?, ?, ?, ?)`,
+        [`le-fee-1-${pfx}`, instId, stuId, yearId, inv1, now(), now(), actorId, actorId],
+      );
+      // Successful payment + allocation + ledger payment credit + receipt
+      await dbRun(
+        `INSERT INTO payments(id, institution_id, student_id, academic_year_id, amount_paise, method, status, reference, idempotency_key, request_hash, paid_at, notes, created_at, updated_at, created_by, updated_by)
+         VALUES (?, ?, ?, ?, 2000000, 'UPI', 'Successful', ?, ?, 'seed', '2026-06-25T10:00:00.000Z', 'Online portal payment', ?, ?, ?, ?)`,
+        [pay1, instId, stuId, yearId, `UPI-REF-${pfx}-01`, `idem-pay1-${pfx}`, now(), now(), actorId, actorId],
+      );
+      await dbRun(
+        `INSERT INTO payment_allocations(id, institution_id, payment_id, invoice_id, installment_id, amount_paise)
+         VALUES (?, ?, ?, ?, ?, 2000000)`,
+        [`pa-1-${pfx}`, instId, pay1, inv1, inst1],
+      );
+      await dbRun(
+        `INSERT INTO ledger_entries(id, institution_id, student_id, academic_year_id, payment_id, kind, description, debit_paise, credit_paise, entry_date, created_at, updated_at, created_by, updated_by)
+         VALUES (?, ?, ?, ?, ?, 'Payment', 'UPI payment for Term 1', 0, 2000000, '2026-06-25', ?, ?, ?, ?)`,
+        [`le-pay-1-${pfx}`, instId, stuId, yearId, pay1, now(), now(), actorId, actorId],
+      );
+      await dbRun(
+        `INSERT INTO receipts(id, institution_id, payment_id, academic_year_id, created_at, updated_at, created_by, updated_by)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        [rec1, instId, pay1, yearId, now(), now(), actorId, actorId],
+      );
+
+      // 2. INVOICE 2: PENDING / UPCOMING (₹25,000 / 2,500,000 paise)
+      const asg2 = `asg-2-${pfx}`;
+      const inv2 = `inv-pend-${pfx}`;
+      const inst2 = `inst-pend-${pfx}`;
+
+      await dbRun(
+        `INSERT INTO student_fee_assignments(id, institution_id, student_id, academic_year_id, structure_id, discount_paise, scholarship_paise, reason, created_at, updated_at, created_by, updated_by)
+         VALUES (?, ?, ?, ?, ?, 0, 0, 'Term 2 Academic Enrollment', ?, ?, ?, ?)`,
+        [asg2, instId, stuId, yearId, str2, now(), now(), actorId, actorId],
+      );
+      await dbRun(
+        `INSERT INTO invoices(id, institution_id, student_id, academic_year_id, assignment_id, gross_paise, discount_paise, scholarship_paise, net_paise, issued_date, due_date, created_at, updated_at, created_by, updated_by)
+         VALUES (?, ?, ?, ?, ?, 2500000, 0, 0, 2500000, '2026-10-01', '2026-12-15', ?, ?, ?, ?)`,
+        [inv2, instId, stuId, yearId, asg2, now(), now(), actorId, actorId],
+      );
+      await dbRun(
+        `INSERT INTO invoice_items(id, institution_id, invoice_id, component_id, name, amount_paise)
+         VALUES (?, ?, ?, ?, 'Tuition Fee - Term 2', 2500000)`,
+        [`ii-2-${pfx}`, instId, inv2, cmp.id],
+      );
+      await dbRun(
+        `INSERT INTO installments(id, institution_id, invoice_id, student_id, academic_year_id, title, amount_paise, due_date, sort_order, created_at, updated_at, created_by, updated_by)
+         VALUES (?, ?, ?, ?, ?, 'Term 2 Installment', 2500000, '2026-12-15', 1, ?, ?, ?, ?)`,
+        [inst2, instId, inv2, stuId, yearId, now(), now(), actorId, actorId],
+      );
+      await dbRun(
+        `INSERT INTO ledger_entries(id, institution_id, student_id, academic_year_id, invoice_id, kind, description, debit_paise, credit_paise, entry_date, created_at, updated_at, created_by, updated_by)
+         VALUES (?, ?, ?, ?, ?, 'Fee', 'Term 2 Tuition Fee', 2500000, 0, '2026-10-01', ?, ?, ?, ?)`,
+        [`le-fee-2-${pfx}`, instId, stuId, yearId, inv2, now(), now(), actorId, actorId],
+      );
+
+      // Pending payment attempt
+      const pay2 = `pay-pend-${pfx}`;
+      await dbRun(
+        `INSERT INTO payments(id, institution_id, student_id, academic_year_id, amount_paise, method, status, reference, idempotency_key, request_hash, paid_at, notes, created_at, updated_at, created_by, updated_by)
+         VALUES (?, ?, ?, ?, 2500000, 'Net Banking', 'Pending', ?, ?, 'seed', '2026-10-06T09:30:00.000Z', 'Awaiting gateway settlement callback', ?, ?, ?, ?)`,
+        [pay2, instId, stuId, yearId, `NB-REF-${pfx}-02`, `idem-pay2-${pfx}`, now(), now(), actorId, actorId],
+      );
+
+      // 3. INVOICE 3: OVERDUE WITH LATE FEE + SCHOLARSHIP/DISCOUNT
+      // Gross: 4,500,000, Discount: 500,000, Scholarship: 1,000,000, Net: 3,000,000
+      const asg3 = `asg-3-${pfx}`;
+      const inv3 = `inv-overdue-${pfx}`;
+      const inst3 = `inst-overdue-${pfx}`;
+      const adj3 = `adj-late-${pfx}`;
+
+      await dbRun(
+        `INSERT INTO student_fee_assignments(id, institution_id, student_id, academic_year_id, structure_id, discount_paise, scholarship_paise, reason, created_at, updated_at, created_by, updated_by)
+         VALUES (?, ?, ?, ?, ?, 500000, 1000000, 'Merit scholarship and sibling concession', ?, ?, ?, ?)`,
+        [asg3, instId, stuId, yearId, str3, now(), now(), actorId, actorId],
+      );
+      await dbRun(
+        `INSERT INTO invoices(id, institution_id, student_id, academic_year_id, assignment_id, gross_paise, discount_paise, scholarship_paise, net_paise, issued_date, due_date, created_at, updated_at, created_by, updated_by)
+         VALUES (?, ?, ?, ?, ?, 4500000, 500000, 1000000, 3000000, '2026-06-01', '2026-07-15', ?, ?, ?, ?)`,
+        [inv3, instId, stuId, yearId, asg3, now(), now(), actorId, actorId],
+      );
+      await dbRun(
+        `INSERT INTO invoice_items(id, institution_id, invoice_id, component_id, name, amount_paise)
+         VALUES (?, ?, ?, ?, 'Composite Annual Academic Fee', 4500000)`,
+        [`ii-3-${pfx}`, instId, inv3, cmp.id],
+      );
+      await dbRun(
+        `INSERT INTO installments(id, institution_id, invoice_id, student_id, academic_year_id, title, amount_paise, due_date, sort_order, created_at, updated_at, created_by, updated_by)
+         VALUES (?, ?, ?, ?, ?, 'Annual Installment', 3000000, '2026-07-15', 1, ?, ?, ?, ?)`,
+        [inst3, instId, inv3, stuId, yearId, now(), now(), actorId, actorId],
+      );
+      // Ledgers for invoice 3: Fee debit, Discount credit, Scholarship credit
+      await dbRun(
+        `INSERT INTO ledger_entries(id, institution_id, student_id, academic_year_id, invoice_id, kind, description, debit_paise, credit_paise, entry_date, created_at, updated_at, created_by, updated_by)
+         VALUES (?, ?, ?, ?, ?, 'Fee', 'Composite Annual Academic Fee', 4500000, 0, '2026-06-01', ?, ?, ?, ?),
+                (?, ?, ?, ?, ?, 'Discount', 'Approved sibling concession', 0, 500000, '2026-06-01', ?, ?, ?, ?),
+                (?, ?, ?, ?, ?, 'Scholarship', 'Approved merit academic scholarship', 0, 1000000, '2026-06-01', ?, ?, ?, ?)`,
+        [
+          `le-fee-3-${pfx}`, instId, stuId, yearId, inv3, now(), now(), actorId, actorId,
+          `le-disc-3-${pfx}`, instId, stuId, yearId, inv3, now(), now(), actorId, actorId,
+          `le-schol-3-${pfx}`, instId, stuId, yearId, inv3, now(), now(), actorId, actorId,
+        ],
+      );
+      // Late Fee adjustment: 50,000 paise (₹500)
+      await dbRun(
+        `INSERT INTO late_fee_runs(id, institution_id, installment_id, period, amount_paise, created_at, updated_at, created_by, updated_by)
+         VALUES (?, ?, ?, '2026-08-01', 50000, ?, ?, ?, ?)`,
+        [`lfr-3-${pfx}`, instId, inst3, now(), now(), actorId, actorId],
+      );
+      await dbRun(
+        `INSERT INTO fee_adjustments(id, institution_id, student_id, academic_year_id, invoice_id, installment_id, kind, amount_paise, reason, approved_by, created_at, updated_at, created_by, updated_by)
+         VALUES (?, ?, ?, ?, ?, ?, 'Late Fee', 50000, 'Automatic late fee accrued after due date', ?, ?, ?, ?, ?)`,
+        [adj3, instId, stuId, yearId, inv3, inst3, actorId, now(), now(), actorId, actorId],
+      );
+      await dbRun(
+        `INSERT INTO ledger_entries(id, institution_id, student_id, academic_year_id, invoice_id, adjustment_id, kind, description, debit_paise, credit_paise, entry_date, created_at, updated_at, created_by, updated_by)
+         VALUES (?, ?, ?, ?, ?, ?, 'Late Fee', 'Automatic late fee accrued', 50000, 0, '2026-08-01', ?, ?, ?, ?)`,
+        [`le-adj-3-${pfx}`, instId, stuId, yearId, inv3, adj3, now(), now(), actorId, actorId],
+      );
+
+      // Failed payment attempt
+      const pay3 = `pay-fail-${pfx}`;
+      await dbRun(
+        `INSERT INTO payments(id, institution_id, student_id, academic_year_id, amount_paise, method, status, reference, idempotency_key, request_hash, paid_at, notes, created_at, updated_at, created_by, updated_by)
+         VALUES (?, ?, ?, ?, 3050000, 'Card', 'Failed', ?, ?, 'seed', '2026-10-04T12:00:00.000Z', 'Payment declined by issuing bank: 3DS verification timeout', ?, ?, ?, ?)`,
+        [pay3, instId, stuId, yearId, `CARD-REF-${pfx}-03`, `idem-pay3-${pfx}`, now(), now(), actorId, actorId],
+      );
+    }
+
+    // B. DOCUMENTS IN ALL 4 CATEGORIES (VERIFIED / PENDING / REJECTED)
+    const docs = [
+      {
+        id: `doc-pers-${pfx}`,
+        title: "National Identity Aadhaar Card",
+        cat: "Student",
+        type: "Identity Proof",
+        url: "https://campus.test/docs/aadhaar.pdf",
+        name: "aadhaar_card.pdf",
+        status: "Verified",
+        notes: "Identity verified against official UIDAI database",
+        by: actorId,
+        at: "2026-06-10T10:00:00.000Z",
+      },
+      {
+        id: `doc-adms-${pfx}`,
+        title: "Previous School Transfer Certificate",
+        cat: "Admission",
+        type: "Transfer Certificate",
+        url: "https://campus.test/docs/tc_school.pdf",
+        name: "school_tc.pdf",
+        status: "Verified",
+        notes: "Verified and counter-signed by admissions authority",
+        by: actorId,
+        at: "2026-06-12T11:30:00.000Z",
+      },
+      {
+        id: `doc-acad-${pfx}`,
+        title: "Class 10 State Board Official Marksheet",
+        cat: "Academic",
+        type: "Marksheet",
+        url: "https://campus.test/docs/marksheet_10.pdf",
+        name: "class_10_marksheet.pdf",
+        status: "Pending",
+        notes: "Pending physical document verification at administrative desk",
+        by: null,
+        at: null,
+      },
+      {
+        id: `doc-inst-${pfx}`,
+        title: "Hostel Conduct & Clearance Certificate",
+        cat: "Institutional",
+        type: "Clearance Certificate",
+        url: "https://campus.test/docs/hostel_conduct.pdf",
+        name: "hostel_conduct.pdf",
+        status: "Rejected",
+        notes: "Warden stamp and official seal missing. Please re-upload signed copy.",
+        by: actorId,
+        at: "2026-09-01T15:00:00.000Z",
+      },
+    ];
+    for (const d of docs) {
+      await dbRun(
+        `INSERT OR IGNORE INTO student_documents(id, institution_id, student_id, title, category, document_type, file_url, file_name, file_size_bytes, mime_type, verification_status, verification_notes, verified_by, verified_at, is_student_uploaded, created_at, updated_at, created_by, updated_by)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1048576, 'application/pdf', ?, ?, ?, ?, 1, ?, ?, ?, ?)`,
+        [d.id, instId, stuId, d.title, d.cat, d.type, d.url, d.name, d.status, d.notes, d.by, d.at, now(), now(), actorId, actorId],
+      );
+    }
+
+    // C. CERTIFICATE REQUESTS (ONE ISSUED WITH NUMBER + VERIFICATION CODE, ONE PENDING)
+    await dbRun(
+      `INSERT OR IGNORE INTO student_certificate_requests(id, institution_id, student_id, certificate_type, reason, status, certificate_number, verification_code, qr_payload, pdf_url, approved_by, approved_at, issued_at, created_at, updated_at, created_by, updated_by)
+       VALUES (?, ?, ?, 'Bonafide Certificate', 'Passport application requirement', 'Issued', ?, ?, ?, 'https://campus.test/certs/bonafide.pdf', ?, '2026-09-10T10:00:00.000Z', '2026-09-10T12:00:00.000Z', ?, ?, ?, ?)`,
+      [
+        `cert-iss-${pfx}`, instId, stuId,
+        `CERT-${pfx.toUpperCase()}-001`,
+        `VER-${pfx.toUpperCase()}-789`,
+        `https://campus.test/verify/CERT-${pfx.toUpperCase()}-001`,
+        actorId, now(), now(), actorId, actorId,
+      ],
+    );
+    await dbRun(
+      `INSERT OR IGNORE INTO student_certificate_requests(id, institution_id, student_id, certificate_type, reason, status, created_at, updated_at, created_by, updated_by)
+       VALUES (?, ?, ?, 'Character Certificate', 'Summer internship background check', 'Pending', ?, ?, ?, ?)`,
+      [`cert-pend-${pfx}`, instId, stuId, now(), now(), actorId, actorId],
+    );
+
+    // D. ANNOUNCEMENTS (INSTITUTE, DEPARTMENT, PROGRAM, CLASS, SECTION, STUDENT-GROUP; ONE EXPIRED; ONE WITH ATTACHMENT)
+    const announcements = [
+      {
+        id: `ann-inst-${pfx}`,
+        title: "Annual Campus Tech & Cultural Symposium 2026",
+        content: "We are thrilled to announce the dates for the Annual Inter-Collegiate Symposium.",
+        scope: "Institute",
+        dept: null, prog: null, cls: null, sec: null, grp: "",
+        att: JSON.stringify([{ name: "symposium_schedule.pdf", url: "https://campus.test/docs/symposium.pdf", size: 524288 }]),
+        exp: null,
+      },
+      {
+        id: `ann-dept-${pfx}`,
+        title: "Department of Computer Science: Guest Lecture Series",
+        content: "Join us this Friday for a special session on AI systems and modern microservices.",
+        scope: "Department",
+        dept: s.deptId, prog: null, cls: null, sec: null, grp: "",
+        att: "[]",
+        exp: null,
+      },
+      {
+        id: `ann-prog-${pfx}`,
+        title: "B.Tech Curriculum Advisory: Elective Registration Window",
+        content: "Open elective selection for next semester starts on the portal next week.",
+        scope: "Program",
+        dept: null, prog: s.progId, cls: null, sec: null, grp: "",
+        att: "[]",
+        exp: null,
+      },
+      {
+        id: `ann-cls-${pfx}`,
+        title: "Class Practical Examination Guidelines",
+        content: "Detailed lab experiment evaluation rubric and schedule for Class 10.",
+        scope: "Class",
+        dept: null, prog: null, cls: s.classId, sec: null, grp: "",
+        att: "[]",
+        exp: null,
+      },
+      {
+        id: `ann-sec-${pfx}`,
+        title: "Section Project Mentor Allotment",
+        content: "Project team review timings and mentor allocations for Section A.",
+        scope: "Section",
+        dept: null, prog: null, cls: null, sec: s.sectionId, grp: "",
+        att: "[]",
+        exp: null,
+      },
+      {
+        id: `ann-grp-${pfx}`,
+        title: "Robotics Club Early Registration (Expired)",
+        content: "Early bird access to intra-college robotics design workshops.",
+        scope: "StudentGroup",
+        dept: null, prog: null, cls: null, sec: null, grp: "Robotics Club",
+        att: "[]",
+        exp: "2026-08-31T23:59:59.000Z", // EXPIRED
+      },
+    ];
+    for (const an of announcements) {
+      await dbRun(
+        `INSERT OR IGNORE INTO campus_announcements(id, institution_id, title, content, category, priority, target_scope, department_id, program_id, class_id, section_id, student_group, attachments, is_pinned, published_at, expires_at, author_name, created_at, updated_at, created_by, updated_by)
+         VALUES (?, ?, ?, ?, 'General', 'Normal', ?, ?, ?, ?, ?, ?, ?, 0, '2026-10-01T08:00:00.000Z', ?, 'Academic Dean Office', ?, ?, ?, ?)`,
+        [an.id, instId, an.title, an.content, an.scope, an.dept, an.prog, an.cls, an.sec, an.grp, an.att, an.exp, now(), now(), actorId, actorId],
+      );
+    }
+    // Read record for announcement
+    await dbRun(
+      `INSERT OR IGNORE INTO student_announcement_reads(id, institution_id, announcement_id, student_id, read_at)
+       VALUES (?, ?, ?, ?, '2026-10-02T10:00:00.000Z')`,
+      [`ann-rd-1-${pfx}`, instId, `ann-inst-${pfx}`, stuId],
+    );
+
+    // E. NOTIFICATIONS OF ALL 10 TYPES (READ + UNREAD)
+    const notifTypes = [
+      { type: "Assignment", title: "Assignment Graded", msg: "Your AVL Tree submission was graded: 94/100" },
+      { type: "Quiz", title: "Quiz Published", msg: "Linear Data Structures Quiz is active until Friday" },
+      { type: "Exam", title: "Mid-Term Examination Schedule", msg: "Exam timetable published by controller of exams" },
+      { type: "Result", title: "Semester Results Available", msg: "Official grade card published on student portal" },
+      { type: "Attendance", title: "Attendance Warning / Update", msg: "Current attendance standing is 88%" },
+      { type: "Fee", title: "Fee Due Reminder", msg: "Term fee installment is upcoming on schedule" },
+      { type: "Admission/document", title: "Document Verified", msg: "Transfer certificate has been verified" },
+      { type: "Event", title: "Sports Tournament Announcement", msg: "Annual sports meet registrations now open" },
+      { type: "LMS", title: "New Lesson Content", msg: "Lesson 3: Binary Search Tree operations available" },
+      { type: "System", title: "Scheduled Maintenance Alert", msg: "Portal maintenance scheduled on Sunday at 2 AM" },
+    ];
+    for (const nt of notifTypes) {
+      // 1 Unread
+      await dbRun(
+        `INSERT OR IGNORE INTO student_portal_notifications(id, institution_id, student_id, type, title, message, action_url, is_read, read_at, created_at, updated_at, created_by, updated_by)
+         VALUES (?, ?, ?, ?, ?, ?, '/portal/alerts', 0, NULL, ?, ?, ?, ?)`,
+        [`notif-u-${nt.type.toLowerCase().replace(/[^a-z0-9]/g, "")}-${pfx}`, instId, stuId, nt.type, nt.title, nt.msg, now(), now(), actorId, actorId],
+      );
+      // 1 Read
+      await dbRun(
+        `INSERT OR IGNORE INTO student_portal_notifications(id, institution_id, student_id, type, title, message, action_url, is_read, read_at, created_at, updated_at, created_by, updated_by)
+         VALUES (?, ?, ?, ?, ?, ?, '/portal/alerts', 1, '2026-10-06T12:00:00.000Z', ?, ?, ?, ?)`,
+        [`notif-r-${nt.type.toLowerCase().replace(/[^a-z0-9]/g, "")}-${pfx}`, instId, stuId, nt.type, `[Read] ${nt.title}`, nt.msg, now(), now(), actorId, actorId],
+      );
+    }
+
+    // F. CONVERSATIONS WITH MESSAGES (FACULTY, SUPPORT, HELPDESK)
+    const convos = [
+      {
+        id: `conv-fac-${pfx}`,
+        type: "Faculty",
+        partId: `fac-advisor-${pfx}`,
+        partName: "Prof. Sunita Sharma",
+        role: "Faculty Advisor",
+        sub: "Data Structures & Algorithms Course Clarification",
+        msg1: "Good morning Professor, could you please clarify problem 3 in the assignment?",
+        msg2: "Hello! Check the sample testbench in lecture 2 notes. Self-balancing rotations are required.",
+        hasAtt: true,
+      },
+      {
+        id: `conv-sup-${pfx}`,
+        type: "Support",
+        partId: `sup-finance-${pfx}`,
+        partName: "Campus Accounts & Finance Support",
+        role: "Finance Officer",
+        sub: "Fee Receipt Verification Inquiry",
+        msg1: "Hi, I have paid the Term 1 fee online. When will the official tax receipt be visible?",
+        msg2: "Hello! Payment has cleared and your receipt is now downloadable under the Receipts tab.",
+        hasAtt: false,
+      },
+      {
+        id: `conv-hpd-${pfx}`,
+        type: "Helpdesk",
+        partId: `hpd-it-${pfx}`,
+        partName: "Campus IT & Network Helpdesk",
+        role: "Network Engineer",
+        sub: "Hostel Wi-Fi MAC Address Whitelisting",
+        msg1: "Please whitelist my laptop MAC address for the hostel wireless network.",
+        msg2: "Your MAC address has been registered. Please reconnect to CampusNet with your credentials.",
+        hasAtt: false,
+      },
+    ];
+    for (const c of convos) {
+      await dbRun(
+        `INSERT OR IGNORE INTO student_conversations(id, institution_id, student_id, participant_type, participant_id, participant_name, participant_role, subject, last_message_at, last_message_preview, unread_count_student, unread_count_participant, status, created_at, updated_at, created_by, updated_by)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, '2026-10-06T14:30:00.000Z', ?, 0, 0, 'Active', ?, ?, ?, ?)`,
+        [c.id, instId, stuId, c.type, c.partId, c.partName, c.role, c.sub, c.msg2.slice(0, 50), now(), now(), actorId, actorId],
+      );
+      // Student message
+      await dbRun(
+        `INSERT OR IGNORE INTO student_messages(id, institution_id, conversation_id, sender_type, sender_id, sender_name, content, attachments, read_at, created_at, updated_at, created_by, updated_by)
+         VALUES (?, ?, ?, 'Student', ?, ?, ?, '[]', '2026-10-06T14:10:00.000Z', '2026-10-06T14:00:00.000Z', '2026-10-06T14:00:00.000Z', ?, ?)`,
+        [`msg-1-${c.id}`, instId, c.id, stuId, s.name, c.msg1, actorId, actorId],
+      );
+      // Participant reply
+      const attJson = c.hasAtt
+        ? JSON.stringify([{ name: "avl_sample.pdf", url: "https://campus.test/docs/avl_sample.pdf" }])
+        : "[]";
+      await dbRun(
+        `INSERT OR IGNORE INTO student_messages(id, institution_id, conversation_id, sender_type, sender_id, sender_name, content, attachments, read_at, created_at, updated_at, created_by, updated_by)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, '2026-10-06T15:00:00.000Z', '2026-10-06T14:30:00.000Z', '2026-10-06T14:30:00.000Z', ?, ?)`,
+        [`msg-2-${c.id}`, instId, c.id, c.type, c.partId, c.partName, c.msg2, attJson, actorId, actorId],
+      );
+    }
+
+    // G. EVENTS (ACADEMIC, WORKSHOP, SEMINAR, SPORTS, PARENT_MEETING, HOLIDAY, INSTITUTE; ONE WITH REGISTRATION AND ATTENDANCE)
+    const events = [
+      { id: `evt-acad-${pfx}`, title: "Annual Science & Tech Project Exhibition", cat: "Academic", loc: "Seminar Hall A", date: "2026-11-10" },
+      { id: `evt-work-${pfx}`, title: "Full-Stack Development with TypeScript Workshop", cat: "Workshop", loc: "Computer Lab 3", date: "2026-10-02" },
+      { id: `evt-semi-${pfx}`, title: "National Academic Seminar on Quantum AI", cat: "Seminar", loc: "Main Auditorium", date: "2026-11-20" },
+      { id: `evt-spor-${pfx}`, title: "Inter-House Football Championship 2026", cat: "Sports", loc: "Campus Stadium", date: "2026-11-25" },
+      { id: `evt-parm-${pfx}`, title: "Semester 1 Parent-Faculty Academic Consultation", cat: "Parent_Meeting", loc: "Administrative Hall", date: "2026-11-05" },
+      { id: `evt-holi-${pfx}`, title: "Diwali Festivities & Institutional Recess", cat: "Holiday", loc: "Campus-wide", date: "2026-11-08" },
+      { id: `evt-inst-${pfx}`, title: "Annual Foundation Day Honors Ceremony", cat: "Institute", loc: "Open Air Amphitheatre", date: "2026-12-01" },
+    ];
+    for (const ev of events) {
+      await dbRun(
+        `INSERT OR IGNORE INTO campus_events(id, institution_id, title, description, category, location, start_date, end_date, is_all_day, target_scope, max_participants, registration_deadline, status, image_url, created_at, updated_at, created_by, updated_by)
+         VALUES (?, ?, ?, 'Official campus event for student participation', ?, ?, ?, ?, 0, 'All', 200, '2026-10-31', 'Upcoming', '', ?, ?, ?, ?)`,
+        [ev.id, instId, ev.title, ev.cat, ev.loc, `${ev.date}T09:00:00.000Z`, `${ev.date}T17:00:00.000Z`, now(), now(), actorId, actorId],
+      );
+    }
+    // Event Registration WITH Attendance (attended workshop)
+    await dbRun(
+      `INSERT OR IGNORE INTO student_event_registrations(id, institution_id, event_id, student_id, status, registered_at, attendance_status, attended_at, reminder_enabled, reminder_minutes_before, notes, created_at, updated_at, created_by, updated_by)
+       VALUES (?, ?, ?, ?, 'Registered', '2026-09-20T10:00:00.000Z', 'Attended', '2026-10-02T09:15:00.000Z', 1, 60, 'Completed full workshop and capstone evaluation', ?, ?, ?, ?)`,
+      [`evreg-work-${pfx}`, instId, `evt-work-${pfx}`, stuId, now(), now(), actorId, actorId],
+    );
+    // Upcoming event registration
+    await dbRun(
+      `INSERT OR IGNORE INTO student_event_registrations(id, institution_id, event_id, student_id, status, registered_at, attendance_status, attended_at, reminder_enabled, reminder_minutes_before, notes, created_at, updated_at, created_by, updated_by)
+       VALUES (?, ?, ?, ?, 'Registered', '2026-10-01T15:00:00.000Z', 'Pending', NULL, 1, 60, 'Enrolled for seat reservation', ?, ?, ?, ?)`,
+      [`evreg-semi-${pfx}`, instId, `evt-semi-${pfx}`, stuId, now(), now(), actorId, actorId],
+    );
+
+    // H. TICKETS IN EVERY STATUS WITH REPLIES AND STATUS HISTORY
+    // Statuses: Open, In Progress, Waiting for Student, Resolved, Closed
+    const tickets = [
+      {
+        id: `tkt-open-${pfx}`,
+        num: `TKT-${pfx.toUpperCase()}-01`,
+        cat: "Academic",
+        sub: "Engineering Physics Marks Mismatch",
+        desc: "My continuous assessment score shows 14 instead of 19.",
+        pri: "High",
+        status: "Open",
+        assignedTo: null,
+        assignedName: "",
+        hist: [{ old: "New", new: "Open", reason: "Ticket logged by student" }],
+        replies: [{ sender: "Student", msg: "Please verify marks from physical answer sheet." }],
+      },
+      {
+        id: `tkt-prog-${pfx}`,
+        num: `TKT-${pfx.toUpperCase()}-02`,
+        cat: "Hostel",
+        sub: "Electrical Socket Repair in Room 204",
+        desc: "Study table socket sparking when connecting charger.",
+        pri: "Medium",
+        status: "In Progress",
+        assignedTo: actorId,
+        assignedName: "Hostel Maintenance Desk",
+        hist: [
+          { old: "Open", new: "Assigned", reason: "Assigned to hostel electrician" },
+          { old: "Assigned", new: "In Progress", reason: "Electrician inspection ongoing" },
+        ],
+        replies: [
+          { sender: "Student", msg: "Please send electrician during evening study hours." },
+          { sender: "Staff", msg: "Electrician assigned and visiting between 4 PM and 5 PM today." },
+        ],
+      },
+      {
+        id: `tkt-wait-${pfx}`,
+        num: `TKT-${pfx.toUpperCase()}-03`,
+        cat: "Library",
+        sub: "Return Deposit Fine Dispute",
+        desc: "Introduction to Algorithms returned on time but overdue fine charged.",
+        pri: "Low",
+        status: "Waiting for Student",
+        assignedTo: actorId,
+        assignedName: "Chief Circulation Librarian",
+        hist: [
+          { old: "Open", new: "In Progress", reason: "Under staff review" },
+          { old: "In Progress", new: "Waiting for Student", reason: "Requested deposit slip copy" },
+        ],
+        replies: [
+          { sender: "Student", msg: "I dropped the book into the circulation slot on Friday." },
+          { sender: "Staff", msg: "Please upload photo of the circulation receipt slip for waiver." },
+        ],
+      },
+      {
+        id: `tkt-res-${pfx}`,
+        num: `TKT-${pfx.toUpperCase()}-04`,
+        cat: "Finance",
+        sub: "Online Payment Double Deduction Reconciliation",
+        desc: "Bank debited twice for online transaction ref DEMO-1001.",
+        pri: "Urgent",
+        status: "Resolved",
+        assignedTo: actorId,
+        assignedName: "Accounts Officer",
+        resAt: "2026-09-15T16:00:00.000Z",
+        resNotes: "Duplicate charge reversed to original payment method with ARN 891230",
+        hist: [
+          { old: "Open", new: "In Progress", reason: "Reconciliation initiated with payment gateway" },
+          { old: "In Progress", new: "Resolved", reason: "Reconciliation complete and refund processed" },
+        ],
+        replies: [
+          { sender: "Student", msg: "Kindly verify duplicate bank statement deduction." },
+          { sender: "Staff", msg: "Settlement reconciled and duplicate refund processed." },
+        ],
+      },
+      {
+        id: `tkt-cls-${pfx}`,
+        num: `TKT-${pfx.toUpperCase()}-05`,
+        cat: "Transport",
+        sub: "Bus Route 12 Timing Adjustment",
+        desc: "Requesting bus pickup shift by 10 minutes at stop 4.",
+        pri: "Low",
+        status: "Closed",
+        assignedTo: actorId,
+        assignedName: "Transport Manager",
+        resAt: "2026-08-20T11:00:00.000Z",
+        closedAt: "2026-08-22T10:00:00.000Z",
+        resNotes: "Pickup timings revised and circular published to parents",
+        hist: [
+          { old: "Open", new: "In Progress", reason: "Reviewing route traffic timing" },
+          { old: "In Progress", new: "Resolved", reason: "New schedule implemented" },
+          { old: "Resolved", new: "Closed", reason: "Confirmed satisfactory by passengers" },
+        ],
+        replies: [
+          { sender: "Student", msg: "Bus arrived before scheduled time." },
+          { sender: "Staff", msg: "Timings have been synchronized with GPS logs." },
+          { sender: "Student", msg: "Thank you, timings are optimal now." },
+        ],
+      },
+    ];
+    for (const tk of tickets) {
+      await dbRun(
+        `INSERT OR IGNORE INTO student_tickets(id, institution_id, student_id, ticket_number, category, subject, description, priority, status, assigned_to, assigned_to_name, resolved_at, resolution_notes, closed_at, created_at, updated_at, created_by, updated_by)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          tk.id, instId, stuId, tk.num, tk.cat, tk.sub, tk.desc, tk.pri, tk.status,
+          tk.assignedTo || null, tk.assignedName, tk.resAt || null, tk.resNotes || "", tk.closedAt || null,
+          now(), now(), actorId, actorId,
+        ],
+      );
+      // Status history
+      for (let hIdx = 0; hIdx < tk.hist.length; hIdx++) {
+        const h = tk.hist[hIdx];
+        await dbRun(
+          `INSERT OR IGNORE INTO student_ticket_status_history(id, institution_id, ticket_id, old_status, new_status, changed_by, changed_by_name, change_reason, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, 'Support Agent', ?, ?)`,
+          [`tkh-${tk.id}-${hIdx}`, instId, tk.id, h.old, h.new, actorId, h.reason, now()],
+        );
+      }
+      // Messages / replies
+      for (let rIdx = 0; rIdx < tk.replies.length; rIdx++) {
+        const rep = tk.replies[rIdx];
+        const isStu = rep.sender === "Student";
+        await dbRun(
+          `INSERT OR IGNORE INTO student_ticket_messages(id, institution_id, ticket_id, sender_type, sender_id, sender_name, message, attachments, created_at, updated_at, created_by, updated_by)
+           VALUES (?, ?, ?, ?, ?, ?, ?, '[]', ?, ?, ?, ?)`,
+          [
+            `tkm-${tk.id}-${rIdx}`, instId, tk.id,
+            isStu ? "Student" : "Staff",
+            isStu ? stuId : actorId,
+            isStu ? s.name : "Support Officer",
+            rep.msg, now(), now(), actorId, actorId,
+          ],
+        );
+      }
+    }
+
+    // I. FEEDBACK (COURSE, FACULTY, EVENT, ASSIGNMENT, SUPPORT)
+    const feedbacks = [
+      { id: `fb-crs-${pfx}`, type: "Course", target: "CS101: Data Structures", rating: 5, anon: 0, title: "Comprehensive Course Content", comments: "Exceptional coding challenges and balanced theoretical explanations." },
+      { id: `fb-fac-${pfx}`, type: "Faculty", target: "Prof. Sunita Sharma", rating: 5, anon: 1, title: "Supportive Faculty Guidance", comments: "Always ready to assist students with algorithmic problem solving." },
+      { id: `fb-evt-${pfx}`, type: "Event", target: "Annual Campus Hackathon", rating: 4, anon: 0, title: "Great Coding Event", comments: "Well coordinated mentorship and interesting problem statements." },
+      { id: `fb-asg-${pfx}`, type: "Assignment", target: "Assignment 1: Balanced BST", rating: 4, anon: 0, title: "Challenging Implementation", comments: "Unit test suite made local verification very smooth." },
+      { id: `fb-sup-${pfx}`, type: "Support", target: "Campus IT & Network Helpdesk", rating: 5, anon: 1, title: "Prompt Wi-Fi Whitelisting", comments: "Device MAC address whitelisted within two hours of ticket." },
+    ];
+    for (const fb of feedbacks) {
+      await dbRun(
+        `INSERT OR IGNORE INTO student_feedback_submissions(id, institution_id, student_id, feedback_type, target_name, rating, title, comments, is_anonymous, status, response_notes, created_at, updated_at, created_by, updated_by)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'Submitted', 'Thank you for your valuable feedback', ?, ?, ?, ?)`,
+        [fb.id, instId, stuId, fb.type, fb.target, fb.rating, fb.title, fb.comments, fb.anon, now(), now(), actorId, actorId],
+      );
+    }
+
+    // J. PERSONAL DEADLINES
+    const deadlines = [
+      { id: `dl-term-${pfx}`, title: "Complete CS101 Term Paper on Graph Algorithms", due: "2026-11-15", cat: "Academic", pri: "High", comp: 0, compAt: null },
+      { id: `dl-mess-${pfx}`, title: "Renew Hostel Accommodation & Mess Subscription", due: "2026-11-20", cat: "Administrative", pri: "Medium", comp: 0, compAt: null },
+      { id: `dl-pass-${pfx}`, title: "Submit Bonafide Certificate Copy for Passport Verification", due: "2026-10-10", cat: "Personal", pri: "High", comp: 1, compAt: "2026-10-09T14:00:00.000Z" },
+    ];
+    for (const dl of deadlines) {
+      await dbRun(
+        `INSERT OR IGNORE INTO student_personal_deadlines(id, institution_id, student_id, title, description, due_date, category, priority, is_completed, completed_at, created_at, updated_at, created_by, updated_by)
+         VALUES (?, ?, ?, ?, '', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [dl.id, instId, stuId, dl.title, dl.due, dl.cat, dl.pri, dl.comp, dl.compAt, now(), now(), actorId, actorId],
+      );
+    }
+
+    // K. SETTINGS
+    await dbRun(
+      `INSERT INTO student_portal_settings(id, institution_id, student_id, theme, language, email_notifications, sms_notifications, push_notifications, fee_alerts, exam_alerts, assignment_alerts, event_alerts, compact_view, created_at, updated_at, created_by, updated_by)
+       VALUES (?, ?, ?, 'system', 'en', 1, 0, 1, 1, 1, 1, 1, 0, ?, ?, ?, ?)
+       ON CONFLICT(institution_id, student_id) DO UPDATE SET theme=excluded.theme, language=excluded.language`,
+      [`set-${pfx}`, instId, stuId, now(), now(), actorId, actorId],
+    );
+  }
+}
+
+export const seedStudentPortalPart2 = ensureStudentPortalPart2Demonstration;
+
+
 
