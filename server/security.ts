@@ -106,7 +106,7 @@ const LOCAL_AUTH_COOKIE = "sohan_local_auth";
 const LOCAL_USERNAME = "test";
 const LOCAL_EMAIL_FALLBACK = "test@sohan.local";
 
-function localAuthSecret() {
+export function localAuthSecret() {
   return (
     (env as typeof env & { LOCAL_AUTH_SECRET?: string }).LOCAL_AUTH_SECRET ||
     "sohan-soft-tech-local-auth-secret-change-me"

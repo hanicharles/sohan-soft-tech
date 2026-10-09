@@ -97,7 +97,9 @@ export function guardRoute(
   const k = path[0],
     read = method === "GET";
   let permission: Permission | undefined;
-  if (["students", "parents", "uploads", "search", "admissions", "parent-portal", "student-portal"].includes(k))
+  if (k === "student-portal" && actor.role === "STUDENT") {
+    permission = "students.view";
+  } else if (["students", "parents", "uploads", "search", "admissions", "parent-portal", "student-portal"].includes(k))
     permission = read ? "students.view" : "students.manage";
   if (["calendar", "campuses"].includes(k))
     permission = read ? "academics.view" : "settings.manage";

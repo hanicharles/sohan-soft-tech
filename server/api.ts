@@ -38,6 +38,8 @@ import { admissionsRoute } from "./routes/admissions";
 import { coreAdminRoute } from "./routes/core-admin";
 import { academicsFacultyRoute } from "./routes/academics-faculty";
 import { lmsRoute } from "./routes/lms";
+import { studentV1Route } from "./routes/student-v1";
+import { verifyCertificateByCode } from "./routes/student-v1/certificates";
 import {
   handleLogin,
   handleLogout,
@@ -93,6 +95,13 @@ export async function dispatch(request: Request): Promise<Response> {
     }
     const publicResponse = await publicRoute(request, path, method, requestId);
     if (publicResponse) return publicResponse;
+    if (
+      (path[0] === "v1" && path[1] === "student" && path[2] === "certificates" && path[3] === "verify") ||
+      (path[0] === "certificates" && path[1] === "verify")
+    ) {
+      const code = path[path.length - 1] === "verify" ? p.get("code") || "" : path[path.length - 1];
+      return await verifyCertificateByCode(code, request, requestId);
+    }
     if (path[0] === "campus") {
       const info = await portalInfo(path[1] || "");
       const supplied = request.headers.get("x-institution-id");
@@ -172,6 +181,7 @@ export async function dispatch(request: Request): Promise<Response> {
           feesRoute,
           paymentsRoute,
           operationsRoute,
+          studentV1Route,
         ]) {
           const response = await route(ctx);
           if (response) return response;

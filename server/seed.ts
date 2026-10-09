@@ -1325,7 +1325,7 @@ export async function ensureStudentPortalPart2Demonstration(
   // 1. Ensure Institution 1 (Main Tenant)
   await dbRun(
     `INSERT OR IGNORE INTO institutions(id, name, slug, address, email, phone, subscription, status, settings, created_at, updated_at, created_by, updated_by)
-     VALUES (?, 'Chaitanya Shree Academy', ?, '24 Vidyanagar, Bengaluru', 'accounts@csa.test', '080-2345-6789', 'Professional', 'Active', '{}', ?, ?, ?, ?)`,
+     VALUES (?, 'Chaitanya Shree Academy', ?, '24 Vidyanagar, Bengaluru', 'accounts@csa.test', '080-2345-6789', 'Professional', 'Active', '{"theme":"system","feedback":{"allow_anonymous":true,"faculty_enabled":true},"class_comparison_allowed":false}', ?, ?, ?, ?)`,
     [tenant1Id, tenant1Id, now(), now(), actorId, actorId],
   );
 
@@ -1417,7 +1417,7 @@ export async function ensureStudentPortalPart2Demonstration(
   const tenant2Id = "inst-cross-tenant-sst";
   await dbRun(
     `INSERT OR IGNORE INTO institutions(id, name, slug, address, email, phone, subscription, status, settings, created_at, updated_at, created_by, updated_by)
-     VALUES (?, 'St. Xavier International Academy', 'st-xavier-intl', '45 Park Street, Kolkata', 'accounts@stxavier.test', '033-2289-1000', 'Professional', 'Active', '{}', ?, ?, ?, ?)`,
+     VALUES (?, 'St. Xavier International Academy', 'st-xavier-intl', '45 Park Street, Kolkata', 'accounts@stxavier.test', '033-2289-1000', 'Professional', 'Active', '{"theme":"system","feedback":{"allow_anonymous":true,"faculty_enabled":true},"class_comparison_allowed":false}', ?, ?, ?, ?)`,
     [tenant2Id, now(), now(), actorId, actorId],
   );
 
@@ -1504,6 +1504,44 @@ export async function ensureStudentPortalPart2Demonstration(
     );
     prog2 = { id: pid };
   }
+
+  // 2B. Faculty, Subjects & Timetable for Tenant 1
+  const fac1Id = `fac-advisor-${tenant1Id.slice(0, 8)}`;
+  await dbRun(
+    `INSERT OR IGNORE INTO faculty(id, institution_id, employee_id, name, email, phone, department_id, department_name, designation, status, joining_date, created_at, updated_at, created_by, updated_by)
+     VALUES (?, ?, 'EMP-FAC-001', 'Prof. Sunita Sharma', 'faculty@sst.com', '9876543201', ?, 'Computer Science & Engineering', 'Associate Professor', 'Active', '2020-07-01', ?, ?, ?, ?)`,
+    [fac1Id, tenant1Id, dept1.id, now(), now(), actorId, actorId],
+  );
+  const sub1Id = `sub-cs101-${tenant1Id.slice(0, 8)}`;
+  await dbRun(
+    `INSERT OR IGNORE INTO subjects(id, institution_id, department_id, class_id, code, name, type, credits, faculty_id, status, created_at, updated_at, created_by, updated_by)
+     VALUES (?, ?, ?, ?, 'CS101', 'Data Structures & Algorithms', 'Theory', 4, ?, 'Active', ?, ?, ?, ?)`,
+    [sub1Id, tenant1Id, dept1.id, cls1.id, fac1Id, now(), now(), actorId, actorId],
+  );
+  await dbRun(
+    `INSERT OR IGNORE INTO timetable_slots(id, institution_id, academic_year_id, campus_id, class_id, section_id, subject_id, faculty_id, day_of_week, period_number, start_time, end_time, room_number, status, created_at, updated_at, created_by, updated_by)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'Monday', 1, '09:00', '10:00', 'Room 101', 'Published', ?, ?, ?, ?)`,
+    [`tt-1-${tenant1Id.slice(0, 8)}`, tenant1Id, year1.id, camp1.id, cls1.id, sec1.id, sub1Id, fac1Id, now(), now(), actorId, actorId],
+  );
+
+  // 2C. Faculty, Subjects & Timetable for Tenant 2 (Cross-Tenant)
+  const fac2Id = `fac-advisor-cross`;
+  await dbRun(
+    `INSERT OR IGNORE INTO faculty(id, institution_id, employee_id, name, email, phone, department_id, department_name, designation, status, joining_date, created_at, updated_at, created_by, updated_by)
+     VALUES (?, ?, 'EMP-FAC-CROSS-01', 'Dr. Alok Ghosh', 'faculty.cross@sst.test', '033-2289-1001', ?, 'Computer Science & Engineering', 'Professor & HOD', 'Active', '2018-07-01', ?, ?, ?, ?)`,
+    [fac2Id, tenant2Id, dept2.id, now(), now(), actorId, actorId],
+  );
+  const sub2Id = `sub-cs101-cross`;
+  await dbRun(
+    `INSERT OR IGNORE INTO subjects(id, institution_id, department_id, class_id, code, name, type, credits, faculty_id, status, created_at, updated_at, created_by, updated_by)
+     VALUES (?, ?, ?, ?, 'CS101-X', 'Data Structures & Algorithms', 'Theory', 4, ?, 'Active', ?, ?, ?, ?)`,
+    [sub2Id, tenant2Id, dept2.id, cls2.id, fac2Id, now(), now(), actorId, actorId],
+  );
+  await dbRun(
+    `INSERT OR IGNORE INTO timetable_slots(id, institution_id, academic_year_id, campus_id, class_id, section_id, subject_id, faculty_id, day_of_week, period_number, start_time, end_time, room_number, status, created_at, updated_at, created_by, updated_by)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'Monday', 1, '09:00', '10:00', 'Lab 201', 'Published', ?, ?, ?, ?)`,
+    [`tt-2-cross`, tenant2Id, year2.id, camp2.id, cls2.id, sec2.id, sub2Id, fac2Id, now(), now(), actorId, actorId],
+  );
 
   // 3. Define the 3 Demo Students
   // Student A in Tenant 1
@@ -2298,6 +2336,76 @@ export async function ensureStudentPortalPart2Demonstration(
        VALUES (?, ?, ?, 'system', 'en', 1, 0, 1, 1, 1, 1, 1, 0, ?, ?, ?, ?)
        ON CONFLICT(institution_id, student_id) DO UPDATE SET theme=excluded.theme, language=excluded.language`,
       [`set-${pfx}`, instId, stuId, now(), now(), actorId, actorId],
+    );
+
+    // L. STUDENT ATTENDANCE (10 sessions: 9 Present, 1 Late -> 90%)
+    for (let day = 1; day <= 10; day++) {
+      const dStr = `2026-09-${String(day + 10).padStart(2, "0")}`;
+      const attStatus = day === 5 ? "Late" : "Present";
+      await dbRun(
+        `INSERT OR IGNORE INTO student_attendance(id, institution_id, academic_year_id, class_id, section_id, student_id, date, period_number, status, remarks, recorded_by, created_at, updated_at, created_by, updated_by)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, 'Regular lecture session', ?, ?, ?, ?, ?)`,
+        [`att-${day}-${pfx}`, instId, yearId, s.classId, s.sectionId, stuId, dStr, attStatus, actorId, now(), now(), actorId, actorId],
+      );
+    }
+
+    // M. STUDENT EXAMS (Mid-Term examination records)
+    await dbRun(
+      `INSERT OR IGNORE INTO student_exams(id, institution_id, student_id, academic_year_id, exam_name, subject, marks_obtained, max_marks, grade, remarks, created_at, updated_at, created_by, updated_by)
+       VALUES (?, ?, ?, ?, 'Mid-Term Examination 2026', 'Data Structures & Algorithms', 88, 100, 'A', 'Strong analytical performance', ?, ?, ?, ?),
+              (?, ?, ?, ?, 'Mid-Term Examination 2026', 'Discrete Mathematics', 92, 100, 'A+', 'Outstanding problem solving', ?, ?, ?, ?)`,
+      [
+        `exam-1-${pfx}`, instId, stuId, yearId, now(), now(), actorId, actorId,
+        `exam-2-${pfx}`, instId, stuId, yearId, now(), now(), actorId, actorId,
+      ],
+    );
+
+    // N. STUDENT LMS COURSES & ENROLLMENTS & ASSIGNMENTS & QUIZZES
+    await dbRun(
+      `INSERT OR IGNORE INTO student_lms_courses(id, institution_id, student_id, course_name, instructor, progress_percent, status, created_at, updated_at, created_by, updated_by)
+       VALUES (?, ?, ?, 'Data Structures & Modern Algorithms', 'Prof. Sunita Sharma', 75, 'Enrolled', ?, ?, ?, ?)`,
+      [`lms-crs-${pfx}`, instId, stuId, now(), now(), actorId, actorId],
+    );
+
+    const lmsCourseId = `lms-c-cs101-${instId.slice(0, 8)}`;
+    await dbRun(
+      `INSERT OR IGNORE INTO lms_courses(id, institution_id, department_id, class_id, section_id, faculty_name, code, title, description, status, created_at, updated_at, created_by, updated_by)
+       VALUES (?, ?, ?, ?, ?, 'Prof. Sunita Sharma', 'CS101', 'Data Structures & Algorithms', 'Foundations of computation and algorithmic efficiency', 'Published', ?, ?, ?, ?)`,
+      [lmsCourseId, instId, s.deptId, s.classId, s.sectionId, now(), now(), actorId, actorId],
+    );
+    await dbRun(
+      `INSERT OR IGNORE INTO lms_enrollments(id, institution_id, course_id, student_id, enrolled_date, progress_percent, completed_lessons, status, created_at, updated_at, created_by, updated_by)
+       VALUES (?, ?, ?, ?, '2026-06-15', 75, '["les-1","les-2","les-3"]', 'Active', ?, ?, ?, ?)`,
+      [`lms-enr-${pfx}`, instId, lmsCourseId, stuId, now(), now(), actorId, actorId],
+    );
+    const asgId = `lms-asg-1-${instId.slice(0, 8)}`;
+    await dbRun(
+      `INSERT OR IGNORE INTO lms_assignments(id, institution_id, course_id, class_id, section_id, title, instructions, max_marks, due_date, status, created_at, updated_at, created_by, updated_by)
+       VALUES (?, ?, ?, ?, ?, 'Assignment 1: Balanced BST', 'Implement AVL rotations and balance invariant checks', 100, '2026-11-15T23:59:59.000Z', 'Published', ?, ?, ?, ?)`,
+      [asgId, instId, lmsCourseId, s.classId, s.sectionId, now(), now(), actorId, actorId],
+    );
+    await dbRun(
+      `INSERT OR IGNORE INTO lms_submissions(id, institution_id, assignment_id, student_id, student_name, content, submitted_at, status, marks_obtained, feedback, created_at, updated_at, created_by, updated_by)
+       VALUES (?, ?, ?, ?, ?, 'AVL tree completed with all rotation test cases passing.', '2026-10-05T14:00:00.000Z', 'Graded', 94, 'Excellent test case coverage and clean implementation.', ?, ?, ?, ?)`,
+      [`lms-sub-${pfx}`, instId, asgId, stuId, s.name, now(), now(), actorId, actorId],
+    );
+    const quizId = `lms-quiz-1-${instId.slice(0, 8)}`;
+    await dbRun(
+      `INSERT OR IGNORE INTO lms_quizzes(id, institution_id, course_id, title, description, time_limit_minutes, total_marks, passing_marks, due_date, status, created_at, updated_at, created_by, updated_by)
+       VALUES (?, ?, ?, 'Linear Data Structures Quiz', 'Covers stacks, queues, and doubly-linked lists', 30, 30, 15, '2026-11-20T23:59:59.000Z', 'Published', ?, ?, ?, ?)`,
+      [quizId, instId, lmsCourseId, now(), now(), actorId, actorId],
+    );
+    await dbRun(
+      `INSERT OR IGNORE INTO lms_quiz_attempts(id, institution_id, quiz_id, student_id, student_name, answers, score, max_score, percentage, passed, time_spent_seconds, completed_at, created_at, updated_at, created_by, updated_by)
+       VALUES (?, ?, ?, ?, ?, '{}', 28, 30, 93, 1, 920, '2026-10-04T16:00:00.000Z', ?, ?, ?, ?)`,
+      [`lms-qatt-${pfx}`, instId, quizId, stuId, s.name, now(), now(), actorId, actorId],
+    );
+
+    // O. HOLIDAYS
+    await dbRun(
+      `INSERT OR IGNORE INTO holidays(id, institution_id, academic_year_id, campus_id, title, date, end_date, type, description, created_at, updated_at, created_by, updated_by)
+       VALUES (?, ?, ?, ?, 'Diwali Institutional Recess', '2026-11-08', '2026-11-10', 'Institutional', 'Festival holidays and campus recess', ?, ?, ?, ?)`,
+      [`hol-diwali-${instId.slice(0, 8)}`, instId, yearId, s.classId, now(), now(), actorId, actorId],
     );
   }
 }
